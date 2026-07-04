@@ -1,0 +1,23 @@
+# Web service + conversion engine (Python deps). System binaries (pandoc,
+# libreoffice, calibre, ffmpeg) are installed via apt in the Dockerfile.
+flask>=3.0
+gunicorn>=21.2
+
+# Documents
+weasyprint>=60          # pandoc PDF engine (no TeX needed)
+pymupdf>=1.24           # PDF -> text/html/image extraction (import: fitz)
+pdf2docx>=0.5           # PDF -> DOCX (best effort); pulls in python-docx
+markdown                # legacy/helpers
+beautifulsoup4
+lxml
+
+# Images
+pillow>=10
+cairosvg>=2.7           # SVG -> raster
+
+# Data
+pandas>=2.0
+openpyxl>=3.1           # xlsx read/write
+xlrd>=2.0               # legacy .xls read
+pyyaml>=6
+tabulate>=0.9           # pandas .to_markdown()

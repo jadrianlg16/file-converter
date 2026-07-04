@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>File Converter</title>
+  <meta name="description" content="Drop a file, pick a format, download the result. Multi-format converter for documents, images, data, ebooks and audio.">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235b8cff'/%3E%3Cpath d='M11 9h6l4 4v10a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z' fill='none' stroke='white' stroke-width='1.6'/%3E%3Cpath d='M16 15v6m0 0l-2.2-2.2M16 21l2.2-2.2' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <rect width="32" height="32" rx="7" fill="var(--accent)"/>
+          <path d="M11 9h6l4 4v10a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1z" fill="none" stroke="#fff" stroke-width="1.6"/>
+          <path d="M16 15v6m0 0l-2.2-2.2M16 21l2.2-2.2" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="brand-name">File Converter</span>
+    </div>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="true" title="Toggle light / dark theme">
+      <span class="theme-toggle-icon" aria-hidden="true"></span>
+      <span class="theme-toggle-label">Dark</span>
+    </button>
+  </header>
+
+  <main id="main" class="wrap">
+    <section class="hero">
+      <h1>Convert anything</h1>
+      <p class="lede">Drop a file and we'll show every format it can become &mdash; documents, images, data, ebooks and audio.</p>
+    </section>
+
+    <section class="card" aria-labelledby="step-file">
+      <h2 id="step-file" class="step-title"><span class="step-num">1</span> Choose a file</h2>
+
+      <label id="dropzone" class="dropzone" for="file-input" tabindex="0"
+             role="button" aria-describedby="dropzone-hint">
+        <input id="file-input" class="visually-hidden" type="file" aria-label="Choose a file to convert">
+        <span class="dropzone-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="44" height="44">
+            <path d="M24 30V12m0 0l-7 7m7-7l7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 30v4a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="dropzone-title">Drag &amp; drop a file here</span>
+        <span id="dropzone-hint" class="dropzone-hint">or <span class="link-like">click to browse</span></span>
+      </label>
+
+      <div id="file-meta" class="file-meta" hidden>
+        <div class="file-meta-main">
+          <span class="file-badge" id="file-ext" aria-hidden="true">?</span>
+          <div class="file-meta-text">
+            <span id="file-name" class="file-name"></span>
+            <span class="file-sub">
+              <span id="file-size"></span>
+              <span class="dot" aria-hidden="true">&middot;</span>
+              <span id="file-type"></span>
+            </span>
+          </div>
+        </div>
+        <button id="file-clear" class="btn-ghost" type="button" aria-label="Remove selected file">Remove</button>
+      </div>
+    </section>
+
+    <section id="targets-section" class="card" aria-labelledby="step-target" hidden>
+      <h2 id="step-target" class="step-title"><span class="step-num">2</span> Convert to&hellip;</h2>
+      <div id="targets" class="targets" role="radiogroup" aria-label="Target format"></div>
+      <p id="no-targets" class="notice notice-muted" hidden></p>
+    </section>
+
+    <section class="card actions-card" aria-labelledby="step-go" hidden id="actions-section">
+      <h2 id="step-go" class="visually-hidden">Convert</h2>
+      <div class="actions">
+        <button id="convert-btn" class="btn-primary" type="button" disabled>
+          <span class="btn-label">Convert</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+        <span id="selected-target" class="selected-target" aria-live="polite"></span>
+      </div>
+      <p id="status" class="notice" role="status" aria-live="polite" hidden></p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Runs entirely on your server &mdash; nothing is sent to third parties.</p>
+    <p class="footer-fine">PDF&nbsp;&rarr;&nbsp;editable formats is best-effort; complex layouts may not survive perfectly.</p>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

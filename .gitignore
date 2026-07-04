@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+.pnp
+.yarn/
+jspm_packages/
+
+# Python
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+.turbo/
+.cache/
+coverage/
+*.tsbuildinfo
+
+# ML models & large weights
+models/
+hf_cache/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.bin
+
+# Runtime data
+downloads/
+uploads/
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Tool binaries fetched at runtime
+**/bin/yt-dlp
+**/bin/yt-dlp.exe
+**/bin/ffmpeg
+**/bin/ffmpeg.exe
+
+# Secrets & environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
