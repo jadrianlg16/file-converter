@@ -96,9 +96,18 @@ def convert():
     return resp
 
 
+def _build_stamp() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "BUILD_STAMP"), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return "dev (no BUILD_STAMP — running outside the Docker image)"
+
+
 @flask_app.get("/health")
 def health():
-    return {"status": "ok", "formats": len(matrix())}
+    return {"status": "ok", "formats": len(matrix()), "build": _build_stamp()}
 
 
 @flask_app.get("/")

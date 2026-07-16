@@ -30,6 +30,10 @@ COPY converters ./converters
 COPY templates ./templates
 COPY static ./static
 
+# Build stamp: regenerated whenever any code layer above changes, exposed at
+# /health and in the UI footer so a stale container is immediately visible.
+RUN date -u +"%Y-%m-%d %H:%M UTC" > /app/BUILD_STAMP
+
 RUN mkdir -p /app/data
 ENV DATA_DIR=/app/data
 # Calibre's PDF output renders via Qt WebEngine (Chromium), which aborts when

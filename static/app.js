@@ -428,4 +428,13 @@
       show(els.actionsSection);
     }
   });
+
+  // Build stamp in the footer: makes a stale container obvious after rebuilds.
+  fetch("/health")
+    .then(function (r) { return r.json(); })
+    .then(function (h) {
+      var el = document.getElementById("build-stamp");
+      if (el && h.build) el.textContent = "Build: " + h.build;
+    })
+    .catch(function () { /* footer stamp is best-effort */ });
 })();
