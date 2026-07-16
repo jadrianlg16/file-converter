@@ -255,13 +255,18 @@ def test_pdf_to_docx(tmp_path):
 
 def _make_dense_pdf(path: str, pages: int = 2) -> str:
     """A PDF whose pages are filled edge to edge — the layout that used to
-    make pdf2docx output spill each source page onto two docx pages."""
+    make pdf2docx output spill each source page onto two docx pages.
+
+    Headings use letters, not numbers: a per-page number at the top that
+    happens to equal the page index would legitimately be detected as a page
+    number and moved into a real Word header by pdf_docx_fixup."""
     fitz = pytest.importorskip("fitz")
     doc = fitz.open()
     for pg in range(pages):
         page = doc.new_page()  # A4: 595 x 842 pt
         y = 56.0
-        page.insert_text((72, y), f"Section {pg + 1}", fontsize=16, fontname="hebo")
+        page.insert_text((72, y), f"Section {chr(65 + pg)}", fontsize=16,
+                         fontname="hebo")
         y += 28
         while y < 806:
             page.insert_text((72, y), "lorem ipsum dolor sit amet consectetur " * 2,
@@ -281,7 +286,7 @@ def test_pdf_to_docx_dense_multipage_content(tmp_path):
     assert _nonempty(out)
     d = docx_mod.Document(out)
     text = "\n".join(p.text for p in d.paragraphs)
-    assert "Section 1" in text and "Section 2" in text
+    assert "Section A" in text and "Section B" in text
     # Post-processing must have disabled widow/orphan control everywhere.
     assert all(p.paragraph_format.widow_control is False for p in d.paragraphs)
 

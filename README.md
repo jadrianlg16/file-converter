@@ -17,10 +17,19 @@ bidirectional wherever it makes sense, across **5 families / ~38 formats**.
 
 Notes: `xls` is read-only (Excel is written as `xlsx`). `svg` is a source only.
 PDF → editable formats is **best-effort** (no OCR — scanned/image-only and
-password-protected PDFs are rejected with a clear error). PDF → docx
-post-processes the pdf2docx output and verifies the rendered page count against
-the source (via LibreOffice), tightening vertical metrics until source pages no
-longer spill onto extra docx pages. PDF → image rasterizes the first page.
+password-protected PDFs are rejected with a clear error). PDF → image
+rasterizes the first page.
+
+PDF → docx goes well beyond raw pdf2docx (see `converters/pdf_docx_fixup.py`):
+repeated letterheads/footers become **real Word headers/footers** (bucketed
+left/center/right, varying page numbers become PAGE/NUMPAGES fields, the
+separator rule becomes a border); label/value and column rows become tab-stop
+paragraphs at the real x-positions instead of strangled layout tables; ruled
+tables get their true column widths from the drawn borders; merged list lines
+are split back into paragraphs; wrongly-justified ragged text is left-aligned
+again; and the result is render-verified with LibreOffice so source pages
+don't spill onto extra docx pages. Regression harness: `tests/pdf_fixtures.py`
++ `tests/test_pdf_layout.py`.
 
 ## Architecture
 

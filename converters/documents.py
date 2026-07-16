@@ -281,8 +281,15 @@ def _compact_docx(path: str, vscale: float = 1.0) -> None:
     from docx.shared import Emu, Pt
 
     doc = Document(path)
+    # A rebuilt real footer (pdf_docx_fixup) reserves bottom margin — don't
+    # trim it away. is_linked_to_previous is checked first because reading
+    # .paragraphs on a linked footer would create an empty definition.
+    sec0 = doc.sections[0]
+    footer_in_use = (not sec0.footer.is_linked_to_previous and
+                     (bool(sec0.footer.tables) or
+                      any(p.text.strip() for p in sec0.footer.paragraphs)))
     for section in doc.sections:
-        if section.bottom_margin is not None:
+        if not footer_in_use and section.bottom_margin is not None:
             section.bottom_margin = min(section.bottom_margin, Pt(14))
 
     for para in _iter_paragraphs(doc):
@@ -338,12 +345,100 @@ def _safe_remove(path: str) -> None:
         pass
 
 
+def _run_pdf2docx(in_path: str, out_path: str, **settings) -> None:
+    from pdf2docx import Converter
+
+    try:
+        cv = Converter(in_path)
+        try:
+            cv.convert(out_path, **settings)  # all pages
+        finally:
+            cv.close()
+    except Exception as e:
+        raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
+    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+        raise ConversionError("PDF->DOCX produced no output.")
+
+
+def _layout_fixed_docx(in_path: str, base_path: str) -> None:
+    """Convert ``in_path`` with pdf2docx and repair the layout into
+    ``base_path``: real Word headers/footers for repeated bands, real column
+    widths for layout tables (re-converting without stream tables when they
+    come out strangled), tab-stop rows, list splitting and alignment fixes.
+    Every repair is best-effort; on analysis failure this degrades to the
+    plain pdf2docx output."""
+    from docx import Document
+
+    from . import pdf_docx_fixup as fixup
+
+    try:
+        layout = fixup.analyze_pdf(in_path)
+    except Exception:
+        layout = None
+    if layout is None:
+        _run_pdf2docx(in_path, base_path)
+        return
+
+    work_path = in_path
+    redacted = base_path + ".redacted.pdf"
+    bands = layout.header or layout.footer
+    if bands:
+        try:
+            fixup.redact_bands(in_path, redacted, layout)
+            work_path = redacted
+        except Exception:
+            layout.header = layout.footer = None
+            bands = False
+
+    try:
+        _run_pdf2docx(work_path, base_path)
+        doc = Document(base_path)
+        try:
+            fixup.fix_stream_table_widths(doc, layout)
+        except Exception:
+            pass
+        if fixup.has_strangled_tables(doc):
+            # invented layout tables beyond repair — re-convert without
+            # stream tables and rebuild the rows with tab stops instead
+            _run_pdf2docx(work_path, base_path,
+                          parse_stream_table=False)
+            doc = Document(base_path)
+        if bands:
+            # after a successful redaction this must succeed, or the band
+            # content would be lost: fall back to converting the intact PDF
+            try:
+                fixup.build_header_footer(doc, layout)
+            except Exception:
+                _run_pdf2docx(in_path, base_path)
+                doc = Document(base_path)
+                try:
+                    fixup.fix_stream_table_widths(doc, layout)
+                except Exception:
+                    pass
+                if fixup.has_strangled_tables(doc):
+                    _run_pdf2docx(in_path, base_path,
+                                  parse_stream_table=False)
+                    doc = Document(base_path)
+        for step in (lambda: fixup.merge_row_paragraphs(doc, layout),
+                     lambda: fixup.split_list_breaks(doc),
+                     lambda: fixup.fix_justified_ragged(doc, layout)):
+            try:
+                step()
+            except Exception:
+                pass
+        doc.save(base_path)
+    finally:
+        _safe_remove(redacted)
+
+
 def pdf_to_docx(in_path: str, out_path: str) -> None:
     """Reconstruct an editable .docx from a PDF via pdf2docx (best effort),
-    then fix up the layout so source pages don't spill onto extra docx pages
-    (see the module docstring for why they otherwise do)."""
+    then repair the layout (headers/footers, tables, paragraphs — see
+    pdf_docx_fixup) and finally verify pagination so source pages don't
+    spill onto extra docx pages (see the module docstring for why they
+    otherwise do)."""
     try:
-        from pdf2docx import Converter
+        import pdf2docx  # noqa: F401
     except ImportError as e:  # pragma: no cover - depends on local env
         raise ConversionError(
             "pdf2docx is required for PDF->DOCX but is not installed."
@@ -351,29 +446,19 @@ def pdf_to_docx(in_path: str, out_path: str) -> None:
 
     src_pages = _preflight_pdf(in_path)
 
-    raw_path = out_path + ".raw.docx"
+    base_path = out_path + ".base.docx"
     try:
-        cv = Converter(in_path)
-        try:
-            cv.convert(raw_path)  # all pages
-        finally:
-            cv.close()
-    except Exception as e:
-        raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
-    if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
-        _safe_remove(raw_path)
-        raise ConversionError("PDF->DOCX produced no output.")
+        _layout_fixed_docx(in_path, base_path)
 
-    try:
         if src_pages > _VERIFY_MAX_PAGES:
-            shutil.copyfile(raw_path, out_path)
+            shutil.copyfile(base_path, out_path)
             _compact_docx(out_path, vscale=0.97)
             return
 
         best_pages: int | None = None
         best_scale = _COMPACT_LADDER[0]
         for scale in _COMPACT_LADDER:
-            shutil.copyfile(raw_path, out_path)
+            shutil.copyfile(base_path, out_path)
             _compact_docx(out_path, vscale=scale)
             rendered = _docx_rendered_pages(out_path)
             if rendered is None:
@@ -384,10 +469,10 @@ def pdf_to_docx(in_path: str, out_path: str) -> None:
                 best_pages, best_scale = rendered, scale
         # No ladder step matched; keep the one that got closest.
         if best_scale != _COMPACT_LADDER[-1]:
-            shutil.copyfile(raw_path, out_path)
+            shutil.copyfile(base_path, out_path)
             _compact_docx(out_path, vscale=best_scale)
     finally:
-        _safe_remove(raw_path)
+        _safe_remove(base_path)
 
 
 # --- Registration (top-level; handlers do the lazy importing) --------------
