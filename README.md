@@ -16,8 +16,11 @@ bidirectional wherever it makes sense, across **5 families / ~38 formats**.
 | **Audio** | mp3, wav, ogg, flac, m4a, aac — any ↔ any | ffmpeg |
 
 Notes: `xls` is read-only (Excel is written as `xlsx`). `svg` is a source only.
-PDF → editable formats is **best-effort** (no OCR for scanned/image-only PDFs).
-PDF → image rasterizes the first page.
+PDF → editable formats is **best-effort** (no OCR — scanned/image-only and
+password-protected PDFs are rejected with a clear error). PDF → docx
+post-processes the pdf2docx output and verifies the rendered page count against
+the source (via LibreOffice), tightening vertical metrics until source pages no
+longer spill onto extra docx pages. PDF → image rasterizes the first page.
 
 ## Architecture
 

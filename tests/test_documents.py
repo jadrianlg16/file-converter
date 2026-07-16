@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from conftest import requires  # noqa: E402
 
 from converters import documents, get_converter  # noqa: E402
+from converters.engine import ConversionError  # noqa: E402
 
 MD_SAMPLE = """# Title
 
@@ -110,7 +111,8 @@ def test_md_to_html_preserves_structure(tmp_path):
     html = open(out, encoding="utf-8").read().lower()
     assert "<h1" in html and "<h2" in html
     assert "<strong>" in html and "<em>" in html
-    assert "<ul>" in html and "<ol>" in html
+    # pandoc 3.x emits attributes on list tags (e.g. <ol type="1">).
+    assert "<ul" in html and "<ol" in html
     assert "<table" in html
     assert "<a href=" in html
     assert "<code" in html or "<pre" in html
@@ -249,3 +251,73 @@ def test_pdf_to_docx(tmp_path):
     documents.pdf_to_docx(pdf, out)
     assert _nonempty(out)
     assert open(out, "rb").read(2) == b"PK"
+
+
+def _make_dense_pdf(path: str, pages: int = 2) -> str:
+    """A PDF whose pages are filled edge to edge — the layout that used to
+    make pdf2docx output spill each source page onto two docx pages."""
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    for pg in range(pages):
+        page = doc.new_page()  # A4: 595 x 842 pt
+        y = 56.0
+        page.insert_text((72, y), f"Section {pg + 1}", fontsize=16, fontname="hebo")
+        y += 28
+        while y < 806:
+            page.insert_text((72, y), "lorem ipsum dolor sit amet consectetur " * 2,
+                             fontsize=10)
+            y += 12.6
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_pdf_to_docx_dense_multipage_content(tmp_path):
+    pytest.importorskip("pdf2docx")
+    docx_mod = pytest.importorskip("docx")
+    pdf = _make_dense_pdf(str(tmp_path / "dense.pdf"), pages=2)
+    out = str(tmp_path / "out.docx")
+    documents.pdf_to_docx(pdf, out)
+    assert _nonempty(out)
+    d = docx_mod.Document(out)
+    text = "\n".join(p.text for p in d.paragraphs)
+    assert "Section 1" in text and "Section 2" in text
+    # Post-processing must have disabled widow/orphan control everywhere.
+    assert all(p.paragraph_format.widow_control is False for p in d.paragraphs)
+
+
+@requires("soffice")
+def test_pdf_to_docx_page_count_preserved(tmp_path):
+    # The regression this suite exists for: a dense N-page PDF must yield a
+    # docx that still paginates to N pages, not 2N.
+    pytest.importorskip("pdf2docx")
+    pdf = _make_dense_pdf(str(tmp_path / "dense.pdf"), pages=3)
+    out = str(tmp_path / "out.docx")
+    documents.pdf_to_docx(pdf, out)
+    assert documents._docx_rendered_pages(out) == 3
+
+
+def test_pdf_to_docx_rejects_scanned(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    pytest.importorskip("pdf2docx")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.draw_rect(fitz.Rect(50, 50, 500, 700), fill=(0.8, 0.8, 0.8))  # no text layer
+    pdf = str(tmp_path / "scan.pdf")
+    doc.save(pdf)
+    doc.close()
+    with pytest.raises(ConversionError, match="text layer"):
+        documents.pdf_to_docx(pdf, str(tmp_path / "out.docx"))
+
+
+def test_pdf_to_docx_rejects_encrypted(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    pytest.importorskip("pdf2docx")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "secret text here")
+    pdf = str(tmp_path / "enc.pdf")
+    doc.save(pdf, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw")
+    doc.close()
+    with pytest.raises(ConversionError, match="password"):
+        documents.pdf_to_docx(pdf, str(tmp_path / "out.docx"))

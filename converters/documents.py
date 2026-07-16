@@ -26,6 +26,13 @@ Design notes
 * PDF is a one-way street for editing: PyMuPDF extracts text/markup for
   txt/md/html, and pdf2docx reconstructs a docx. These are explicitly
   best-effort (no OCR for scanned/image-only PDFs).
+* pdf2docx recreates each PDF page as a fixed-size docx page positioned with
+  exact spacing from the PDF's font metrics; Word/LibreOffice render with
+  substituted fonts whose lines are slightly taller, so full pages overflow
+  and spill onto extra docx pages. ``pdf_to_docx`` therefore post-processes
+  the output (widow control off, bottom-margin slack) and, when LibreOffice
+  is available, verifies the rendered page count against the source PDF,
+  progressively tightening vertical metrics until they match.
 
 Heavy libraries (fitz, pdf2docx) are imported lazily *inside* the handlers so
 this module still imports when those libs/binaries are absent locally.
@@ -33,6 +40,8 @@ this module still imports when those libs/binaries are absent locally.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 
 from .engine import ConversionError, have, pandoc, soffice_convert
 from .registry import register, register_many
@@ -193,8 +202,146 @@ def pdf_to_html(in_path: str, out_path: str) -> None:
         fh.write(html)
 
 
+# Vertical-compaction ladder for the verify-and-retry loop: 1.0 keeps the
+# pdf2docx metrics untouched; later steps shrink exact line heights and
+# paragraph spacing just enough to absorb font-substitution growth.
+_COMPACT_LADDER = (1.0, 0.96, 0.91)
+# Above this page count, re-rendering the docx through LibreOffice per ladder
+# step is too slow; apply a mild blind compaction instead.
+_VERIFY_MAX_PAGES = 50
+
+
+def _preflight_pdf(in_path: str) -> int:
+    """Validate the PDF is convertible; return its page count.
+
+    Raises a clear ConversionError for password-protected PDFs and for
+    scanned/image-only PDFs (no text layer at all — OCR is not supported), so
+    the user gets an explanation instead of an empty or garbled docx.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as e:  # pragma: no cover - depends on local env
+        raise ConversionError(
+            "PyMuPDF (pymupdf / import name 'fitz') is required for PDF->DOCX "
+            "but is not installed."
+        ) from e
+
+    try:
+        doc = fitz.open(in_path)
+    except Exception as e:
+        raise ConversionError(f"Could not read PDF: {e}") from e
+    with doc:
+        if doc.needs_pass:
+            raise ConversionError(
+                "This PDF is password-protected. Remove the password and try again."
+            )
+        pages = doc.page_count
+        if pages == 0:
+            raise ConversionError("This PDF contains no pages.")
+        sample = min(pages, 10)
+        chars = sum(len(doc[i].get_text("text").strip()) for i in range(sample))
+        if chars == 0:
+            raise ConversionError(
+                "This PDF has no extractable text layer (it looks scanned or "
+                "image-only). OCR is not supported, so PDF->DOCX would come "
+                "out empty."
+            )
+        return pages
+
+
+def _iter_paragraphs(container):
+    """Yield every paragraph in a Document or table cell, nested tables included."""
+    for para in container.paragraphs:
+        yield para
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                yield from _iter_paragraphs(cell)
+
+
+def _iter_tables(container):
+    for table in container.tables:
+        yield table
+        for row in table.rows:
+            for cell in row.cells:
+                yield from _iter_tables(cell)
+
+
+def _compact_docx(path: str, vscale: float = 1.0) -> None:
+    """Post-process a pdf2docx output in place so pages don't spill.
+
+    Always: disable widow/orphan control (Word otherwise drags lines to the
+    next page in pairs) and trim the bottom margin so slightly-taller rendering
+    still fits the page box. With ``vscale < 1``: additionally shrink exact
+    line heights, paragraph spacing and at-least row heights by that factor.
+    """
+    from docx import Document
+    from docx.enum.table import WD_ROW_HEIGHT_RULE
+    from docx.enum.text import WD_LINE_SPACING
+    from docx.shared import Emu, Pt
+
+    doc = Document(path)
+    for section in doc.sections:
+        if section.bottom_margin is not None:
+            section.bottom_margin = min(section.bottom_margin, Pt(14))
+
+    for para in _iter_paragraphs(doc):
+        pf = para.paragraph_format
+        pf.widow_control = False
+        if vscale >= 1.0:
+            continue
+        if (pf.line_spacing is not None
+                and pf.line_spacing_rule in (WD_LINE_SPACING.EXACTLY,
+                                             WD_LINE_SPACING.AT_LEAST)):
+            pf.line_spacing = Emu(int(pf.line_spacing * vscale))
+        if pf.space_before:
+            pf.space_before = Emu(int(pf.space_before * vscale))
+        if pf.space_after:
+            pf.space_after = Emu(int(pf.space_after * vscale))
+
+    if vscale < 1.0:
+        for table in _iter_tables(doc):
+            for row in table.rows:
+                # Exact row heights would clip content if shrunk; only scale
+                # grow-as-needed rows.
+                if row.height is not None and row.height_rule != WD_ROW_HEIGHT_RULE.EXACTLY:
+                    row.height = Emu(int(row.height * vscale))
+
+    doc.save(path)
+
+
+def _pdf_page_count(path: str) -> int:
+    import fitz
+
+    with fitz.open(path) as doc:
+        return doc.page_count
+
+
+def _docx_rendered_pages(docx_path: str) -> int | None:
+    """Page count of the docx as LibreOffice lays it out; None if unavailable."""
+    if not have("soffice"):
+        return None
+    tmpdir = tempfile.mkdtemp(prefix="fcdocx_")
+    try:
+        rendered = soffice_convert(docx_path, tmpdir, "pdf")
+        return _pdf_page_count(rendered)
+    except Exception:
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _safe_remove(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def pdf_to_docx(in_path: str, out_path: str) -> None:
-    """Reconstruct an editable .docx from a PDF via pdf2docx (best effort)."""
+    """Reconstruct an editable .docx from a PDF via pdf2docx (best effort),
+    then fix up the layout so source pages don't spill onto extra docx pages
+    (see the module docstring for why they otherwise do)."""
     try:
         from pdf2docx import Converter
     except ImportError as e:  # pragma: no cover - depends on local env
@@ -202,17 +349,45 @@ def pdf_to_docx(in_path: str, out_path: str) -> None:
             "pdf2docx is required for PDF->DOCX but is not installed."
         ) from e
 
+    src_pages = _preflight_pdf(in_path)
+
+    raw_path = out_path + ".raw.docx"
     try:
         cv = Converter(in_path)
         try:
-            cv.convert(out_path)  # all pages
+            cv.convert(raw_path)  # all pages
         finally:
             cv.close()
     except Exception as e:
         raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
-
-    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+    if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
+        _safe_remove(raw_path)
         raise ConversionError("PDF->DOCX produced no output.")
+
+    try:
+        if src_pages > _VERIFY_MAX_PAGES:
+            shutil.copyfile(raw_path, out_path)
+            _compact_docx(out_path, vscale=0.97)
+            return
+
+        best_pages: int | None = None
+        best_scale = _COMPACT_LADDER[0]
+        for scale in _COMPACT_LADDER:
+            shutil.copyfile(raw_path, out_path)
+            _compact_docx(out_path, vscale=scale)
+            rendered = _docx_rendered_pages(out_path)
+            if rendered is None:
+                return  # can't verify (no LibreOffice) — keep untightened output
+            if rendered <= src_pages:
+                return  # page counts match — done
+            if best_pages is None or rendered < best_pages:
+                best_pages, best_scale = rendered, scale
+        # No ladder step matched; keep the one that got closest.
+        if best_scale != _COMPACT_LADDER[-1]:
+            shutil.copyfile(raw_path, out_path)
+            _compact_docx(out_path, vscale=best_scale)
+    finally:
+        _safe_remove(raw_path)
 
 
 # --- Registration (top-level; handlers do the lazy importing) --------------
