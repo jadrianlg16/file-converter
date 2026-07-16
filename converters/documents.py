@@ -419,9 +419,11 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
                     _run_pdf2docx(in_path, base_path,
                                   parse_stream_table=False)
                     doc = Document(base_path)
-        for step in (lambda: fixup.merge_row_paragraphs(doc, layout),
+        for step in (lambda: fixup.flatten_column_sections(doc, layout),
+                     lambda: fixup.merge_row_paragraphs(doc, layout),
                      lambda: fixup.split_list_breaks(doc),
-                     lambda: fixup.fix_justified_ragged(doc, layout)):
+                     lambda: fixup.fix_justified_ragged(doc, layout),
+                     lambda: fixup.restore_banner_shading(doc, layout)):
             try:
                 step()
             except Exception:

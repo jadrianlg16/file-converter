@@ -151,6 +151,44 @@ def test_tab_columns_alignment(tmp_path):
     assert abs(positions[1] + margin - 430 * 20) < 500
 
 
+# --- Official letter: column sections flattened, banner visible -------------
+
+def test_official_letter_structure(tmp_path):
+    _, out = _convert(tmp_path, pdf_fixtures.make_official_letter, "carta")
+    import zipfile
+
+    with zipfile.ZipFile(out) as z:
+        xml = z.read("word/document.xml").decode("utf-8")
+    # pdf2docx's multi-column sections must be gone (they scramble the render
+    # and force page splits in Word/LibreOffice)
+    assert 'w:num="2"' not in xml
+    # the white-on-red banner text must have regained its shading
+    assert "Datos personales" in xml
+    import re
+    assert re.search(r'<w:shd[^>]*w:fill="[0-9A-F]{6}"', xml), \
+        "banner paragraph must carry the fill of the rectangle behind it"
+    # reading order: personal data stays together, before the recipient block
+    d = docx.Document(out)
+    full = []
+    for p in d.paragraphs:
+        full.append(p.text)
+    for t in d.tables:
+        for row in t.rows:
+            for c in row.cells:
+                full.append(c.text)
+    joined = "\n".join(full)
+    for needle in ["GARCIA LOPEZ JUAN ALBERTO", "NSS: 12345678901",
+                   "CURP: GALJ850101HNLRPN09", "MONTERREY, NUEVO LEON",
+                   "P R E S E N T E", "A T E N T A M E N T E"]:
+        assert needle in joined, f"missing: {needle}"
+
+
+@requires("soffice")
+def test_official_letter_single_page(tmp_path):
+    _, out = _convert(tmp_path, pdf_fixtures.make_official_letter, "carta")
+    assert documents._docx_rendered_pages(out) == 1
+
+
 # --- Ruled table keeps real column widths ------------------------------------
 
 def test_lattice_table_real_widths(tmp_path):

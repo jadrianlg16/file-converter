@@ -98,6 +98,7 @@ class Span:
     font: str
     bold: bool
     italic: bool
+    color: int = 0  # sRGB int as reported by PyMuPDF (0 = black)
 
 
 @dataclass
@@ -141,6 +142,7 @@ class Layout:
     rows: list = field(default_factory=list)     # per page: list[Row]
     blocks: list = field(default_factory=list)   # per page: list[BlockInfo]
     vlines: list = field(default_factory=list)   # per page: [(x, y0, y1)]
+    fillrects: list = field(default_factory=list)  # per page: [(Rect, rgb)]
     header: Band | None = None
     footer: Band | None = None
 
@@ -158,6 +160,7 @@ def _mk_span(sp: dict) -> Span | None:
         bold=bool(flags & 16) or "bold" in fname.lower(),
         italic=bool(flags & 2) or "italic" in fname.lower()
               or "oblique" in fname.lower(),
+        color=int(sp.get("color", 0)),
     )
 
 
@@ -476,8 +479,8 @@ def analyze_pdf(path: str) -> Layout:
             infos, records = _page_blocks(page)
             layout.blocks.append(infos)
             page_records.append(records)
-            hlines, vlines = [], []
-            if pno < 30:  # drawings are only needed for rules/table borders
+            hlines, vlines, fills = [], [], []
+            if pno < 30:  # drawings are only needed for rules/borders/banners
                 try:
                     for d in page.get_drawings():
                         r = d.get("rect")
@@ -487,10 +490,14 @@ def analyze_pdf(path: str) -> Layout:
                             hlines.append(r)
                         elif r.width <= 3 and r.height >= 16:
                             vlines.append((r.x0, r.y0, r.y1))
+                        elif (d.get("fill") is not None and 6 <= r.height <= 80
+                              and r.width >= 30):
+                            fills.append((r, d["fill"]))
                 except Exception:
                     pass
             hlines_per_page.append(hlines)
             layout.vlines.append(vlines)
+            layout.fillrects.append(fills)
         if uniform:
             layout.header, layout.footer = _detect_bands(
                 doc, page_records, hlines_per_page, first.width, first.height)
@@ -550,12 +557,18 @@ def _pt(length) -> float:
 
 
 def _apply_span_format(run, span: Span) -> None:
+    from docx.shared import RGBColor
+
     run.font.size = Pt(round(span.size * 2) / 2)
     run.bold = span.bold
     run.italic = span.italic
     name = _map_font(span.font)
     if name:
         run.font.name = name
+    if span.color:
+        run.font.color.rgb = RGBColor((span.color >> 16) & 0xFF,
+                                      (span.color >> 8) & 0xFF,
+                                      span.color & 0xFF)
 
 
 _FONT_MAP = [
@@ -814,15 +827,25 @@ def build_header_footer(doc, layout: Layout) -> None:
 # Body repairs
 # --------------------------------------------------------------------------
 
+def _starts_new_page(sect_pr) -> bool:
+    """A sectPr starts a new page unless its type is continuous/nextColumn
+    (pdf2docx emits those for multi-column zones within one source page)."""
+    t = sect_pr.find(f"{W_NS}type")
+    return t is None or t.get(qn("w:val")) in ("nextPage", "oddPage",
+                                               "evenPage")
+
+
 def _body_pages(doc) -> list:
     """Split top-level body elements into per-page groups (pdf2docx emits one
-    section per source page; a paragraph carrying w:sectPr closes a page)."""
+    page-breaking section per source page; continuous/column sections stay
+    within their page)."""
     pages, current = [], []
     for el in doc.element.body:
         tag = el.tag
         if tag == f"{W_NS}p":
             current.append(el)
-            if el.find(f"{W_NS}pPr/{W_NS}sectPr") is not None:
+            spr = el.find(f"{W_NS}pPr/{W_NS}sectPr")
+            if spr is not None and _starts_new_page(spr):
                 pages.append(current)
                 current = []
         elif tag == f"{W_NS}tbl":
@@ -833,6 +856,237 @@ def _body_pages(doc) -> list:
     if current:
         pages.append(current)
     return pages
+
+
+def _iter_container_paragraphs(container):
+    """Every paragraph in a Document/_Cell, nested tables included."""
+    for p in container.paragraphs:
+        yield p
+    for t in container.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                yield from _iter_container_paragraphs(cell)
+
+
+def _iter_elements_paragraphs(elements, doc):
+    """Paragraph objects in the given body elements, table cells included."""
+    for el in elements:
+        if el.tag == f"{W_NS}p":
+            yield Paragraph(el, doc)
+        elif el.tag == f"{W_NS}tbl":
+            for row in Table(el, doc).rows:
+                for cell in row.cells:
+                    yield from _iter_container_paragraphs(cell)
+
+
+def flatten_column_sections(doc, layout: Layout) -> None:
+    """Replace pdf2docx's multi-column sections with a real layout table.
+
+    pdf2docx models side-by-side zones (e.g. personal data left, place/date
+    right in official letters) as consecutive Word sections with
+    ``w:cols num="2"`` joined by ``nextColumn`` breaks. Word and LibreOffice
+    render these poorly — content reflows across the columns and the section
+    boundaries often force page breaks. A borderless 1xN table with one
+    column-flow per cell renders identically everywhere and is editable.
+
+    Cell content is rebuilt from PDF geometry (one paragraph per source line,
+    original formatting) when every source row can be matched; otherwise the
+    existing elements are moved into the cells unchanged.
+    """
+    body = doc.element.body
+
+    # parse the body into sections
+    sections, current = [], []
+    for el in list(body):
+        tag = el.tag
+        if tag == f"{W_NS}p":
+            current.append(el)
+            spr = el.find(f"{W_NS}pPr/{W_NS}sectPr")
+            if spr is not None:
+                sections.append({"els": current, "sect": spr, "host": el})
+                current = []
+        elif tag == f"{W_NS}tbl":
+            current.append(el)
+        elif tag == f"{W_NS}sectPr":
+            sections.append({"els": current, "sect": el, "host": None})
+            current = []
+    if current:
+        sections.append({"els": current, "sect": None, "host": None})
+
+    def _cols(sec):
+        if sec["sect"] is None:
+            return 1
+        c = sec["sect"].find(f"{W_NS}cols")
+        if c is None:
+            return 1
+        return int(c.get(qn("w:num")) or 1)
+
+    # page index per section. A page-breaking sectPr immediately followed by
+    # a multi-column section is pdf2docx's columns machinery, not a real
+    # source page break — the column zone lives on the same page.
+    page_of, pno = [], 0
+    for k, sec in enumerate(sections):
+        page_of.append(pno)
+        if sec["sect"] is None or not _starts_new_page(sec["sect"]):
+            continue
+        next_cols = _cols(sections[k + 1]) if k + 1 < len(sections) else 1
+        if next_cols < 2:
+            pno += 1
+
+    # group consecutive multi-column sections
+    i = 0
+    groups = []
+    while i < len(sections):
+        if _cols(sections[i]) >= 2:
+            j = i
+            while j < len(sections) and _cols(sections[j]) >= 2:
+                j += 1
+            groups.append((i, j, page_of[i]))
+            i = j
+        else:
+            i += 1
+
+    for start, end, gpno in groups:
+        group = sections[start:end]
+        anchor = next((el for sec in group for el in sec["els"]), None)
+        if anchor is None:
+            continue
+        # pdf2docx closes the zone *before* the columns with a typeless
+        # (page-breaking) sectPr even though it's the same source page —
+        # neutralize it so the flattened flow stays on one page
+        if start > 0 and page_of[start - 1] == gpno:
+            prev = sections[start - 1]["sect"]
+            if prev is not None:
+                t = prev.find(f"{W_NS}type")
+                if t is None:
+                    t = OxmlElement("w:type")
+                    prev.insert(0, t)
+                t.set(qn("w:val"), "continuous")
+        n = len(group)
+        # column widths from the first section's explicit w:col list
+        widths_tw = []
+        c = group[0]["sect"].find(f"{W_NS}cols")
+        if c is not None:
+            widths_tw = [int(col.get(qn("w:w")) or 0)
+                         for col in c.findall(f"{W_NS}col")]
+        sec_obj = doc.sections[0]
+        text_tw = int(sec_obj.page_width - sec_obj.left_margin -
+                      sec_obj.right_margin) // 635
+        if len(widths_tw) != n or not all(widths_tw):
+            widths_tw = [text_tw // n] * n
+
+        table = doc.add_table(rows=1, cols=n)
+        table.autofit = False
+        _set_table_borders(table, bottom_rule=False)
+        for gc, w in zip(table._tbl.tblGrid.findall(f"{W_NS}gridCol"),
+                         widths_tw):
+            gc.set(qn("w:w"), str(w))
+        anchor.addprevious(table._tbl)
+
+        rows = layout.rows[gpno] if gpno < len(layout.rows) else []
+        for sec, cell, w in zip(group, table.rows[0].cells, widths_tw):
+            cell.width = Emu(w * 635)
+            texts = [p.text for p in _iter_elements_paragraphs(sec["els"], doc)
+                     if p.text.strip()]
+            sq = _squash("".join(texts))
+            matched = [r for r in rows if r.squash and r.squash in sq]
+            covered = sum(len(r.squash) for r in matched)
+            if matched and covered == len(sq):
+                # rebuild from geometry: one paragraph per source line
+                matched.sort(key=lambda r: r.spans[0].y0)
+                cl_x0 = min(s.x0 for r in matched for s in r.spans)
+                cl_x1 = max(s.x1 for r in matched for s in r.spans)
+                cl_cx = (cl_x0 + cl_x1) / 2
+                first, prev_y1 = True, None
+                for r in matched:
+                    p = cell.paragraphs[0] if first else cell.add_paragraph()
+                    first = False
+                    pf = p.paragraph_format
+                    pf.space_after = Pt(0)
+                    if prev_y1 is not None:
+                        pf.space_before = Pt(max(r.spans[0].y0 - prev_y1, 0))
+                    prev_y1 = max(s.y1 for s in r.spans)
+                    rw = max(s.x1 for s in r.spans) - min(s.x0 for s in r.spans)
+                    rcx = (min(s.x0 for s in r.spans) +
+                           max(s.x1 for s in r.spans)) / 2
+                    if rw < (cl_x1 - cl_x0) * 0.85 and abs(rcx - cl_cx) <= 8:
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    for si, sp in enumerate(r.spans):
+                        run = p.add_run(sp.text +
+                                        (" " if si < len(r.spans) - 1 else ""))
+                        _apply_span_format(run, sp)
+                for el in sec["els"]:
+                    body.remove(el)
+            else:
+                # fallback: move the existing elements into the cell
+                first = True
+                for el in sec["els"]:
+                    if el is sec["host"]:
+                        ppr = el.find(f"{W_NS}pPr")
+                        spr = (ppr.find(f"{W_NS}sectPr")
+                               if ppr is not None else None)
+                        if spr is not None:
+                            ppr.remove(spr)
+                        if not el.findall(f"{W_NS}r"):
+                            body.remove(el)
+                            continue
+                    if first and not cell.paragraphs[0].text:
+                        cell.paragraphs[0]._p.addprevious(el)
+                    else:
+                        cell._tc.append(el)
+                    first = False
+            # drop the section break itself (host handled above; body-level
+            # sectPr for mid-document groups should not survive either)
+            if sec["host"] is not None and sec["host"].getparent() is not None:
+                ppr = sec["host"].find(f"{W_NS}pPr")
+                spr = ppr.find(f"{W_NS}sectPr") if ppr is not None else None
+                if spr is not None:
+                    ppr.remove(spr)
+                if not sec["host"].findall(f"{W_NS}r"):
+                    body.remove(sec["host"])
+
+
+def _is_light(color_val: int) -> bool:
+    r, g, b = (color_val >> 16) & 0xFF, (color_val >> 8) & 0xFF, color_val & 0xFF
+    return (r * 299 + g * 587 + b * 114) / 1000 > 200
+
+
+def restore_banner_shading(doc, layout: Layout) -> None:
+    """Light text drawn over a filled rectangle (e.g. white-on-red banner
+    titles in official letters) loses the rectangle in pdf2docx and becomes
+    invisible. Re-apply the fill as paragraph shading."""
+    pages = _body_pages(doc)
+    for pno, elements in enumerate(pages):
+        fills = layout.fillrects[pno] if pno < len(layout.fillrects) else []
+        if not fills:
+            continue
+        rows = layout.rows[pno] if pno < len(layout.rows) else []
+        for para in _iter_elements_paragraphs(elements, doc):
+            probe = _squash(para.text)
+            if not probe:
+                continue
+            colors = [r.font.color.rgb for r in para.runs
+                      if r.font.color and r.font.color.rgb is not None]
+            if not colors or not all(
+                    _is_light(int(str(c), 16)) for c in colors):
+                continue
+            row = next((r for r in rows if r.squash == probe
+                        or r.squash.startswith(probe)), None)
+            if row is None:
+                continue
+            cx = (row.spans[0].x0 + row.spans[-1].x1) / 2
+            cy = (row.spans[0].y0 + row.spans[0].y1) / 2
+            rect_fill = next((fill for rect, fill in fills
+                              if rect.contains(fitz.Point(cx, cy))), None)
+            if rect_fill is None:
+                continue
+            rgb = "%02X%02X%02X" % tuple(int(round(v * 255))
+                                         for v in rect_fill[:3])
+            ppr = para._p.get_or_add_pPr()
+            shd = OxmlElement("w:shd")
+            shd.set(qn("w:val"), "clear")
+            shd.set(qn("w:fill"), rgb)
+            ppr.append(shd)
 
 
 def has_strangled_tables(doc) -> bool:
@@ -893,6 +1147,25 @@ def fix_stream_table_widths(doc, layout: Layout) -> None:
             for row in table.rows:
                 for idx, cell in enumerate(row.cells[:ncols]):
                     col_texts[idx] += _squash(cell.text)
+            # text + logo table (letterheads): give the text all the room the
+            # image doesn't need, so the title stops wrapping
+            if len(table.rows) == 1 and ncols == 2:
+                has_img = [any(True for _ in c._tc.iter(f"{W_NS}drawing"))
+                           for c in table.rows[0].cells]
+                if has_img.count(True) == 1:
+                    img_idx = has_img.index(True)
+                    if not col_texts[img_idx]:
+                        total = sum(int(gc.get(qn("w:w")) or 0) for gc in grid)
+                        img_w = max(total // 5, 1400)
+                        widths_tw = [total - img_w, img_w]
+                        if img_idx == 0:
+                            widths_tw.reverse()
+                        for gc, w in zip(grid, widths_tw):
+                            gc.set(qn("w:w"), str(w))
+                        for idx, cell in enumerate(table.rows[0].cells):
+                            cell.width = Emu(widths_tw[idx] * 635)
+                        _clamp_cell_indents(table)
+                        continue
             # match PDF rows whose spans fall into this table's columns
             matched = [r for r in rows
                        if len(r.spans) == ncols and all(

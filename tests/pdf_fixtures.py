@@ -121,6 +121,83 @@ def make_tab_columns(path: str) -> str:
     return path
 
 
+def make_official_letter(path: str) -> str:
+    """Official-letter layout (Infonavit-style): centered institution header,
+    red logo top-right, red banner with white text, asymmetric two-column
+    zone (personal data left / place-date-number right), recipient block,
+    letter-spaced PRESENTE, justified body. pdf2docx used to model the
+    two-column zone as w:cols sections (scrambled + page-split render) and
+    lose the banner fill (white-on-white text)."""
+    import textwrap
+
+    RED = (0.85, 0.04, 0.15)
+    doc = fitz.open()
+    W, H = 612, 792
+    page = doc.new_page(width=W, height=H)
+
+    t1 = "Instituto del Fondo Nacional de la Vivienda para los Trabajadores"
+    w1 = fitz.get_text_length(t1, fontname="hebo", fontsize=10)
+    page.insert_text(((W - w1) / 2, 58), t1, fontsize=10, fontname="hebo")
+    t2 = "Gerencia de Recaudacion Fiscal y Cobranza"
+    w2 = fitz.get_text_length(t2, fontname="helv", fontsize=9)
+    page.insert_text(((W - w2) / 2, 72), t2, fontsize=9)
+    page.draw_circle(fitz.Point(W - 85, 62), 20, color=RED, fill=RED)
+    page.draw_rect(fitz.Rect(W - 112, 84, W - 58, 90), color=RED, fill=RED)
+
+    page.draw_rect(fitz.Rect(100, 132, 268, 152), color=RED, fill=RED)
+    page.insert_text((107, 146), "Datos personales", fontsize=10,
+                     fontname="hebo", color=(1, 1, 1))
+    y = 168.0
+    for line in ["GARCIA LOPEZ JUAN ALBERTO", "NSS: 12345678901",
+                 "RFC: GALJ850101AB0", "CURP: GALJ850101HNLRPN09",
+                 "Credito: 2109876543"]:
+        page.insert_text((100, y), line, fontsize=9)
+        y += 12.5
+
+    lbl = "Lugar y fecha de emision"
+    wl = fitz.get_text_length(lbl, fontname="helv", fontsize=9)
+    cx = 468
+    page.insert_text((cx - wl / 2, 140), lbl, fontsize=9)
+    page.draw_line(fitz.Point(368, 148), fitz.Point(568, 148), color=RED,
+                   width=1)
+    for i, (txt, bold) in enumerate([("MONTERREY, NUEVO LEON", False),
+                                     ("a 15 de julio de 2025", False),
+                                     ("Numero", False),
+                                     ("2109876543-XY-0098123456", True)]):
+        fn = "hebo" if bold else "helv"
+        tw = fitz.get_text_length(txt, fontname=fn, fontsize=9)
+        page.insert_text((cx - tw / 2, 162 + i * 13), txt, fontsize=9,
+                         fontname=fn)
+
+    y = 250.0
+    for line in ["JUAN ALBERTO GARCIA LOPEZ", "CALLE FALSA 123, INT. 4",
+                 "COLONIA CENTRO, C.P. 64000, MONTERREY, NUEVO LEON"]:
+        page.insert_text((100, y), line, fontsize=9, fontname="hebo")
+        y += 12.5
+    page.insert_text((100, 302), "P R E S E N T E", fontsize=10,
+                     fontname="hebo")
+
+    body = ("Por medio de la presente y en atencion a su solicitud, se hace "
+            "constar que el credito otorgado en su favor por este Instituto, "
+            "destinado a la adquisicion de la vivienda ubicada en el "
+            "domicilio senalado, con fecha 30 de junio de 2025 quedo "
+            "totalmente liquidado, por lo que se extiende la presente carta "
+            "de instruccion para la cancelacion de la hipoteca constituida "
+            "sobre el inmueble de referencia ante el Registro Publico de la "
+            "Propiedad y del Comercio del Estado de Nuevo Leon.")
+    y = 330.0
+    for ln in textwrap.wrap(body, width=98):
+        page.insert_text((100, y), ln, fontsize=9)
+        y += 12.0
+    page.insert_text((100, y + 40), "A T E N T A M E N T E", fontsize=9,
+                     fontname="hebo")
+    page.insert_text((100, y + 80), "LIC. MARIA FERNANDEZ RUIZ", fontsize=9)
+    page.insert_text((100, y + 92), "GERENTE DE COBRANZA", fontsize=8)
+    doc.save(path)
+    doc.close()
+    return path
+
+
 LATTICE_COLS = [40, 260, 380, 520]  # real column widths: 220 / 120 / 140 pt
 
 
