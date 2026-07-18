@@ -402,3 +402,13 @@ body {
   .actions { flex-direction: column; align-items: stretch; }
   .selected-target { text-align: center; }
 }
+
+/* Public-demo banner (rendered only when the server sets DEMO_MODE=1). */
+.demo-banner {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+  margin: 14px auto 0;
+  max-width: 560px;
+}
+.demo-banner a { color: var(--accent); font-weight: 600; }

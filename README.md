@@ -72,9 +72,30 @@ python web_app.py            # http://localhost:5007
 
 ## API
 
-- `GET /api/formats` → `{"formats": {"<ext>": {"name","category","targets":[...]}}}`
-- `POST /convert` — multipart `file` + `target` (extension) → file download, or JSON `{"error":"..."}`
+- `GET /api/formats` → `{"formats": {"<ext>": {"name","category","targets":[...]}}}` (+ `"demo"` info when DEMO_MODE is on)
+- `POST /convert` — multipart `file` + `target` (extension) → file download, or JSON `{"error":"..."}` (`429`/`403` when a demo limit trips)
 - `GET /health` → `{"status":"ok","formats":N}`
+
+## Public demo mode (DEMO_MODE)
+
+The app ships with an **opt-in guard** for hosting a public demo without
+letting the internet use your box as a free conversion farm. Self-hosted
+installs are unlimited; set `DEMO_MODE=1` and the instance bounds itself:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `DEMO_MODE` | off | `1` enables everything below |
+| `DEMO_MAX_UPLOAD_MB` | `10` | per-file upload cap (full app: `MAX_UPLOAD_MB`, 200) |
+| `DEMO_RATE_PER_HOUR` | `5` | conversions per client IP per rolling hour |
+| `DEMO_DAILY_BUDGET` | `200` | global conversions per UTC day, all visitors combined |
+| `DEMO_BLOCK` | — | comma-separated extensions to refuse (e.g. `wav,flac`) |
+| `DEMO_REPO_URL` | — | self-host link shown in limit messages and the UI banner |
+
+Counters live in SQLite under `DATA_DIR` (shared across gunicorn workers,
+survive restarts). Client IP honors `X-Forwarded-For`, so it works behind
+Cloudflare/Caddy. When a limit trips, the response is a friendly nudge to
+clone the repo and run the unlimited version — the cap *is* the marketing.
+Guard logic is stdlib-only: `python tests/test_demo_guard.py` runs anywhere.
 
 ## Develop / test
 

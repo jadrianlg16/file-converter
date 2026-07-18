@@ -34,6 +34,7 @@
     convertBtn: document.getElementById("convert-btn"),
     selectedTarget: document.getElementById("selected-target"),
     status: document.getElementById("status"),
+    demoBanner: document.getElementById("demo-banner"),
   };
 
   // ---- State --------------------------------------------------------------
@@ -108,6 +109,7 @@
       .then(function (data) {
         state.formats = (data && data.formats) || {};
         state.formatsError = null;
+        renderDemoBanner(data && data.demo);
       })
       .catch(function (err) {
         state.formats = null;
@@ -115,6 +117,22 @@
           "Couldn't load the list of supported formats. " +
           "Check your connection and reload. (" + err.message + ")";
       });
+  }
+
+  // ---- Demo banner --------------------------------------------------------
+  // Shown only when the server runs with DEMO_MODE=1 (public demo instance).
+  function renderDemoBanner(demo) {
+    if (!els.demoBanner || !demo) return;
+    els.demoBanner.textContent =
+      "Public demo — files up to " + demo.maxUploadMb + " MB, " +
+      demo.ratePerHour + " conversions/hour. ";
+    var link = document.createElement("a");
+    link.href = demo.repoUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Self-host the full version →";
+    els.demoBanner.appendChild(link);
+    show(els.demoBanner);
   }
 
   // ---- File selection -----------------------------------------------------

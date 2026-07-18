@@ -26,14 +26,18 @@ from werkzeug.utils import secure_filename
 
 from converters import FORMATS, get_converter, matrix
 from converters.engine import ConversionError
+from demo_guard import DemoGuard, client_ip
 
 flask_app = Flask(__name__, static_folder="static", template_folder="templates")
 
 WORK = os.environ.get("DATA_DIR", "/app/data")
 os.makedirs(WORK, exist_ok=True)
 
-# 200 MB upload cap (audio/ebooks can be large).
-flask_app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "200")) * 1024 * 1024
+guard = DemoGuard(os.path.join(WORK, "demo-guard.sqlite"))
+
+# 200 MB upload cap (audio/ebooks can be large); demo instances cap harder.
+_upload_mb = guard.max_upload_mb if guard.enabled else int(os.environ.get("MAX_UPLOAD_MB", "200"))
+flask_app.config["MAX_CONTENT_LENGTH"] = _upload_mb * 1024 * 1024
 
 
 def _ext(filename: str) -> str:
@@ -42,7 +46,11 @@ def _ext(filename: str) -> str:
 
 @flask_app.get("/api/formats")
 def api_formats():
-    return jsonify({"formats": matrix()})
+    payload = {"formats": matrix()}
+    demo = guard.public_info()
+    if demo:
+        payload["demo"] = demo
+    return jsonify(payload)
 
 
 @flask_app.post("/convert")
@@ -63,6 +71,10 @@ def convert():
     fn = get_converter(src, target)
     if fn is None:
         return jsonify({"error": f"No converter for .{src} → .{target}."}), 400
+
+    verdict = guard.check_and_count(client_ip(request.headers, request.remote_addr), src, target)
+    if not verdict.allowed:
+        return jsonify({"error": verdict.error}), verdict.status
 
     job = uuid.uuid4().hex
     stem = secure_filename(os.path.splitext(f.filename)[0]) or "converted"
