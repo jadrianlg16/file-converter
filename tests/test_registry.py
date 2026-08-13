@@ -2,6 +2,8 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from converters import FORMATS, get_converter, matrix, sources, targets_for  # noqa: E402
@@ -41,6 +43,9 @@ def test_core_pairs_exist():
 
 
 def test_health_and_formats_endpoints():
+    # The web layer is an optional extra (requirements.web.txt); skip rather
+    # than fail so the unit suite still runs on a box without Flask.
+    pytest.importorskip("flask")
     from web_app import flask_app
 
     client = flask_app.test_client()
