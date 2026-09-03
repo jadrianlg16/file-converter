@@ -26,6 +26,7 @@ COPY requirements.web.txt .
 RUN pip install --no-cache-dir -r requirements.web.txt
 
 COPY web_app.py ./
+COPY demo_guard.py ./
 COPY converters ./converters
 COPY templates ./templates
 COPY static ./static
