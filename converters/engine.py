@@ -82,7 +82,8 @@ def soffice_convert(in_path: str, out_dir: str, target_ext: str,
 
     Each call uses a private, throwaway profile dir so concurrent gunicorn
     workers don't clash on a shared UserInstallation lock. The profile is
-    deleted afterwards — LibreOffice writes several MB into it per run.
+    deleted afterwards: LibreOffice leaves ~0.5 MB in it per run, which
+    used to pile up in /tmp for the life of the container.
     """
     require("soffice")
     os.makedirs(out_dir, exist_ok=True)
