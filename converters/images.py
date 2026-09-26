@@ -1,22 +1,22 @@
-"""Image conversions — OWNED BY THE "media" AGENT (shared with audio.py).
+"""Image conversions (Pillow, CairoSVG, PyMuPDF).
 
 Scope:
   * Raster hub via Pillow: png, jpg, jpeg, webp, gif, bmp, tiff, tif -> any of
-    each other. Handle RGBA->RGB flattening for jpeg, animated gif first frame,
-    EXIF orientation, etc.
-  * svg -> raster (png/jpg/jpeg/webp/...) via cairosvg/CairoSVG. svg is a SOURCE
-    only (no raster->svg).
-  * raster -> pdf via Pillow (img2pdf-style single page). pdf is a TARGET here.
-  * pdf -> raster (png/jpg/jpeg/tiff): render the FIRST page via PyMuPDF
-    (fitz). Multi-page PDFs only yield page 1 — kept deliberately simple and
-    predictable. This is the ONLY pdf pair this module owns; documents.py owns
-    pdf->text formats.
+    each other. Handles RGBA->RGB flattening for jpeg/bmp, animated sources
+    (first frame), and EXIF orientation.
+  * svg -> raster via CairoSVG. svg is a SOURCE only (no raster->svg).
+    CairoSVG (>= 2.7) does not fetch external resources by default.
+  * raster -> pdf via Pillow (single page).
+  * pdf -> raster: renders the FIRST page via PyMuPDF (fitz). Multi-page PDFs
+    only yield page 1 — kept deliberately simple and predictable. These are
+    the only pdf pairs this module owns; documents.py owns pdf->text formats.
 
 Heavy libs (PIL, cairosvg, fitz) are imported lazily inside the handlers so the
 package still imports when an optional dependency is missing locally.
 """
 from __future__ import annotations
 
+import io
 import os
 
 from .engine import ConversionError
@@ -39,9 +39,26 @@ _PIL_FORMAT = {
 # Targets that cannot store an alpha channel and must be flattened first.
 _NO_ALPHA = {"jpg", "jpeg", "bmp"}
 
+# Encoder settings per Pillow format (formats not listed use Pillow defaults).
+_SAVE_KWARGS = {
+    "JPEG": {"quality": 90, "optimize": True},
+    "WEBP": {"quality": 90, "method": 4},
+    "PNG": {"optimize": True},
+    "TIFF": {"compression": "tiff_deflate"},
+}
+
 
 def _ext(path: str) -> str:
     return os.path.splitext(path)[1].lower().lstrip(".")
+
+
+def _pil_format_for(out_path: str, what: str) -> tuple[str, str]:
+    """(target ext, Pillow format name) for ``out_path``, or ConversionError."""
+    target = _ext(out_path)
+    pil_format = _PIL_FORMAT.get(target)
+    if pil_format is None:
+        raise ConversionError(f"Unsupported {what} target: {target!r}")
+    return target, pil_format
 
 
 def _load_first_frame(img):
@@ -96,24 +113,11 @@ def raster_to_raster(in_path: str, out_path: str) -> None:
     """Convert between raster formats with Pillow."""
     from PIL import Image, UnidentifiedImageError
 
-    target = _ext(out_path)
-    pil_format = _PIL_FORMAT.get(target)
-    if pil_format is None:
-        raise ConversionError(f"Unsupported raster target: {target!r}")
-
+    target, pil_format = _pil_format_for(out_path, "raster")
     try:
         with Image.open(in_path) as src:
             img = _normalise_for(target, src)
-            save_kwargs = {}
-            if pil_format == "JPEG":
-                save_kwargs.update(quality=90, optimize=True)
-            elif pil_format == "WEBP":
-                save_kwargs.update(quality=90, method=4)
-            elif pil_format == "PNG":
-                save_kwargs.update(optimize=True)
-            elif pil_format == "TIFF":
-                save_kwargs.update(compression="tiff_deflate")
-            img.save(out_path, format=pil_format, **save_kwargs)
+            img.save(out_path, format=pil_format, **_SAVE_KWARGS.get(pil_format, {}))
     except (UnidentifiedImageError, OSError, ValueError) as e:
         raise ConversionError(f"Image conversion failed: {e}") from e
 
@@ -129,11 +133,7 @@ def svg_to_raster(in_path: str, out_path: str) -> None:
         ) from e
     from PIL import Image, UnidentifiedImageError
 
-    target = _ext(out_path)
-    pil_format = _PIL_FORMAT.get(target)
-    if pil_format is None:
-        raise ConversionError(f"Unsupported SVG raster target: {target!r}")
-
+    target, pil_format = _pil_format_for(out_path, "SVG raster")
     try:
         if pil_format == "PNG":
             # Direct path — no intermediate decode needed.
@@ -141,19 +141,10 @@ def svg_to_raster(in_path: str, out_path: str) -> None:
             return
         # Render to PNG bytes, then hand off to the raster pipeline for the
         # final encode (handles alpha flattening for JPEG/BMP, quality, etc.).
-        import io
-
         png_bytes = cairosvg.svg2png(url=in_path)
         with Image.open(io.BytesIO(png_bytes)) as src:
             img = _normalise_for(target, src)
-            save_kwargs = {}
-            if pil_format == "JPEG":
-                save_kwargs.update(quality=90, optimize=True)
-            elif pil_format == "WEBP":
-                save_kwargs.update(quality=90, method=4)
-            elif pil_format == "TIFF":
-                save_kwargs.update(compression="tiff_deflate")
-            img.save(out_path, format=pil_format, **save_kwargs)
+            img.save(out_path, format=pil_format, **_SAVE_KWARGS.get(pil_format, {}))
     except (UnidentifiedImageError, OSError, ValueError) as e:
         raise ConversionError(f"SVG conversion failed: {e}") from e
 
@@ -188,31 +179,22 @@ def pdf_to_raster(in_path: str, out_path: str) -> None:
         ) from e
     from PIL import Image
 
-    target = _ext(out_path)
-    pil_format = _PIL_FORMAT.get(target)
-    if pil_format is None:
-        raise ConversionError(f"Unsupported PDF raster target: {target!r}")
-
+    _, pil_format = _pil_format_for(out_path, "PDF raster")
     doc = None
     try:
         doc = fitz.open(in_path)
+        if doc.needs_pass:
+            raise ConversionError(
+                "This PDF is password-protected. Remove the password and try again."
+            )
         if doc.page_count == 0:
             raise ConversionError("PDF has no pages to rasterise.")
         page = doc.load_page(0)  # first page only (documented)
         # ~144 DPI (2x the 72pt default) for a crisp result without huge files.
-        matrix = fitz.Matrix(2.0, 2.0)
-        pix = page.get_pixmap(matrix=matrix, alpha=False)
-
-        mode = "RGB" if pix.n < 4 else "RGBA"
-        img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
-        if target in _NO_ALPHA:
-            img = _flatten_to_rgb(img)
-        save_kwargs = {}
-        if pil_format == "JPEG":
-            save_kwargs.update(quality=90, optimize=True)
-        elif pil_format == "TIFF":
-            save_kwargs.update(compression="tiff_deflate")
-        img.save(out_path, format=pil_format, **save_kwargs)
+        # alpha=False renders onto white, so the pixmap is always plain RGB.
+        pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        img.save(out_path, format=pil_format, **_SAVE_KWARGS.get(pil_format, {}))
     except ConversionError:
         raise
     except Exception as e:  # fitz / PIL surface a variety of error types
@@ -230,5 +212,5 @@ register_many(RASTER, RASTER, raster_to_raster)
 register_many(["svg"], RASTER, svg_to_raster)
 # Raster -> PDF.
 register_many(RASTER, ["pdf"], raster_to_pdf)
-# PDF -> raster (this module owns only these pdf pairs).
-register_many(["pdf"], ["png", "jpg", "jpeg", "tiff"], pdf_to_raster)
+# PDF -> raster, first page (this module owns only these pdf pairs).
+register_many(["pdf"], RASTER, pdf_to_raster)

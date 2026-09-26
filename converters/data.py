@@ -1,18 +1,16 @@
-"""Data / tabular conversions — OWNED BY THE "data+ebooks" AGENT (with ebooks.py).
+"""Data / tabular conversions (pandas + openpyxl + xlrd + PyYAML).
 
 Scope:
-  * Tabular hub via pandas: csv, tsv, json, xlsx, xls, yaml, yml -> each other.
-    Notes:
-      - xls is a SOURCE only for round-tripping; write Excel as xlsx (openpyxl).
-        Register xls as a target only if you implement an .xls writer; otherwise
-        leave xls out of the target set (document the choice).
-      - json: support both records (list-of-objects) and {columns} shapes; be
-        robust to non-tabular json by falling back to a single-column dump.
-      - yaml/yml: treat as a list of records or a dict; mirror json behavior.
+  * Tabular hub: csv, tsv, json, xlsx, xls, yaml, yml -> each other.
+      - xls is a SOURCE only; Excel output is always written as xlsx.
+      - xlsx/xls: only the first worksheet is read.
+      - json: records (list-of-objects) and {column: [values]} shapes; other
+        JSON falls back to a single "value" column (or one record for a dict).
+      - yaml/yml: same shapes as json.
+      - csv/tsv: read as UTF-8 (BOM tolerated); files saved by Excel on
+        Windows (cp1252 / Latin-1) are decoded via a fallback.
   * Convenience exports: csv, tsv, xlsx, xls, json -> html and md (render a
-    table). These are SOURCE->doc one-way niceties, not a full doc engine.
-
-Use pandas + openpyxl (+ xlrd for .xls read) + PyYAML. Replace _todo handlers.
+    table). One-way niceties, not a full doc engine.
 
 All heavy libraries are imported lazily *inside* the handlers so this module
 (and therefore the whole ``converters`` package) imports cleanly even when
@@ -66,6 +64,32 @@ def _records_from_obj(obj):
     return [{"value": obj}], None
 
 
+# Tried in order for csv/tsv. utf-8-sig also strips a BOM; cp1252 covers CSVs
+# saved by Excel on Windows; latin-1 maps every byte, so it never fails.
+_TEXT_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def _read_delimited(in_path: str, sep: str):
+    import pandas as pd
+
+    for encoding in _TEXT_ENCODINGS[:-1]:
+        try:
+            return pd.read_csv(in_path, sep=sep, encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    return pd.read_csv(in_path, sep=sep, encoding=_TEXT_ENCODINGS[-1])
+
+
+def _frame_from_obj(obj):
+    """Parsed JSON/YAML object -> DataFrame (see ``_records_from_obj``)."""
+    import pandas as pd
+
+    records, orient = _records_from_obj(obj)
+    if orient == "columns":
+        return pd.DataFrame(records)
+    return pd.DataFrame.from_records(records)
+
+
 def _read_df(in_path: str):
     """Read ``in_path`` into a pandas DataFrame based on its extension."""
     import pandas as pd
@@ -73,9 +97,9 @@ def _read_df(in_path: str):
     src = _ext(in_path)
 
     if src == "csv":
-        return pd.read_csv(in_path)
+        return _read_delimited(in_path, ",")
     if src == "tsv":
-        return pd.read_csv(in_path, sep="\t")
+        return _read_delimited(in_path, "\t")
     if src == "xlsx":
         return pd.read_excel(in_path, engine="openpyxl")
     if src == "xls":
@@ -84,27 +108,23 @@ def _read_df(in_path: str):
     if src == "json":
         import json
 
+        # utf-8-sig: Notepad and PowerShell 5.1 save JSON/YAML with a BOM,
+        # which json.load() otherwise rejects.
         try:
-            with open(in_path, "r", encoding="utf-8") as fh:
+            with open(in_path, "r", encoding="utf-8-sig") as fh:
                 obj = json.load(fh)
         except ValueError as e:
             raise ConversionError(f"Invalid JSON input: {e}") from e
-        records, orient = _records_from_obj(obj)
-        if orient == "columns":
-            return pd.DataFrame(records)
-        return pd.DataFrame.from_records(records)
+        return _frame_from_obj(obj)
     if src in ("yaml", "yml"):
         import yaml
 
         try:
-            with open(in_path, "r", encoding="utf-8") as fh:
+            with open(in_path, "r", encoding="utf-8-sig") as fh:
                 obj = yaml.safe_load(fh)
         except yaml.YAMLError as e:
             raise ConversionError(f"Invalid YAML input: {e}") from e
-        records, orient = _records_from_obj(obj)
-        if orient == "columns":
-            return pd.DataFrame(records)
-        return pd.DataFrame.from_records(records)
+        return _frame_from_obj(obj)
 
     raise ConversionError(f"Unsupported data source format: {src!r}")
 
@@ -183,9 +203,14 @@ def export_table(in_path: str, out_path: str) -> None:
     dst = _ext(out_path)
     try:
         if dst in ("html", "htm"):
-            html = df.to_html(index=False, border=1, na_rep="")
+            # A complete document with a declared charset: a bare <table>
+            # fragment can show non-ASCII text as mojibake when opened.
+            table = df.to_html(index=False, border=1, na_rep="")
             with open(out_path, "w", encoding="utf-8") as fh:
-                fh.write(html)
+                fh.write('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n'
+                         "<title>Table</title>\n</head>\n<body>\n")
+                fh.write(table)
+                fh.write("\n</body>\n</html>\n")
         elif dst in ("md", "markdown"):
             # to_markdown needs `tabulate`.
             md = df.to_markdown(index=False)

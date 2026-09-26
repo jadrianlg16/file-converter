@@ -167,15 +167,19 @@ def test_svg_without_cairosvg_gives_clear_error(tmp_path, monkeypatch):
 
 @requires_pillow
 @requires_fitz
-@pytest.mark.parametrize("target", ["png", "jpg", "jpeg", "tiff"])
+@pytest.mark.parametrize("target", ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "tif"])
 def test_pdf_to_raster_first_page(tmp_path, target):
     import fitz
     from PIL import Image
 
+    from converters import get_converter
+
+    assert get_converter("pdf", target) is images.pdf_to_raster
+
     pdf = str(tmp_path / "doc.pdf")
     doc = fitz.open()
     doc.new_page(width=72, height=72)
-    doc.new_page(width=72, height=72)  # 2 pages: only page 1 should render
+    doc.new_page(width=144, height=72)  # 2 pages: only page 1 should render
     doc.save(pdf)
     doc.close()
 
@@ -184,6 +188,7 @@ def test_pdf_to_raster_first_page(tmp_path, target):
     assert _nonempty(out)
     with Image.open(out) as im:
         im.load()
+        assert im.size == (144, 144)  # page 1 (72pt square) at 2x zoom
 
 
 # --------------------------------------------------------------------------- #

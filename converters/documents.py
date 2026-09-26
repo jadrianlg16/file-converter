@@ -1,4 +1,4 @@
-"""Document conversions — OWNED BY THE "documents" AGENT.
+"""Document conversions (Pandoc, LibreOffice, PyMuPDF, pdf2docx).
 
 Scope (all bidirectional unless noted):
   * Text hub via Pandoc: md, markdown, rst, txt, html, htm, docx, odt, rtf,
@@ -40,8 +40,10 @@ this module still imports when those libs/binaries are absent locally.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
+from html import escape
 
 from .engine import ConversionError, have, pandoc, soffice_convert
 from .registry import register, register_many
@@ -124,23 +126,44 @@ def text_to_pdf(in_path: str, out_path: str) -> None:
 
 # --- PDF -> editable formats (best effort) ---------------------------------
 
-def _pdf_blocks_text(in_path: str) -> str:
-    """Extract plain text from a PDF using PyMuPDF, page by page."""
+def _fitz():
+    """Import PyMuPDF lazily, with a clear error when it isn't installed."""
     try:
         import fitz  # PyMuPDF
     except ImportError as e:  # pragma: no cover - depends on local env
         raise ConversionError(
-            "PyMuPDF (pymupdf / import name 'fitz') is required for PDF text "
-            "extraction but is not installed."
+            "PyMuPDF (pip package 'pymupdf', import name 'fitz') is required "
+            "for PDF input but is not installed."
         ) from e
+    return fitz
 
-    parts: list[str] = []
+
+def _open_pdf(in_path: str):
+    """Open a PDF for reading (use as a context manager).
+
+    Raises ConversionError for unreadable files and for password-protected
+    PDFs, whose pages can't be read without the password.
+    """
+    fitz = _fitz()
     try:
-        with fitz.open(in_path) as doc:
-            for page in doc:
-                parts.append(page.get_text("text"))
+        doc = fitz.open(in_path)
     except Exception as e:
         raise ConversionError(f"Could not read PDF: {e}") from e
+    if doc.needs_pass:
+        doc.close()
+        raise ConversionError(
+            "This PDF is password-protected. Remove the password and try again."
+        )
+    return doc
+
+
+def _pdf_blocks_text(in_path: str) -> str:
+    """Extract plain text from a PDF using PyMuPDF, page by page."""
+    with _open_pdf(in_path) as doc:
+        try:
+            parts = [page.get_text("text") for page in doc]
+        except Exception as e:
+            raise ConversionError(f"Could not read PDF: {e}") from e
     # Separate pages with a blank line so paragraph structure is preserved.
     return "\n\n".join(p.strip("\n") for p in parts)
 
@@ -160,11 +183,11 @@ def pdf_to_md(in_path: str, out_path: str) -> None:
     keeps the output valid Markdown and readable; it is explicitly best-effort.
     """
     text = _pdf_blocks_text(in_path)
-    # Normalise runs of blank lines into Markdown paragraph breaks.
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    md = "\n".join(lines).strip() + "\n" if lines else ""
+    # Collapse runs of blank lines into single Markdown paragraph breaks.
+    md = re.sub(r"\n{3,}", "\n\n", "\n".join(ln.rstrip() for ln in text.splitlines()))
+    md = md.strip()
     with open(out_path, "w", encoding="utf-8") as fh:
-        fh.write(md)
+        fh.write(md + "\n" if md else "")
 
 
 def pdf_to_html(in_path: str, out_path: str) -> None:
@@ -174,28 +197,22 @@ def pdf_to_html(in_path: str, out_path: str) -> None:
     visually resembles the source. We wrap the per-page fragments in a minimal
     standalone HTML document with a UTF-8 charset.
     """
-    try:
-        import fitz  # PyMuPDF
-    except ImportError as e:  # pragma: no cover - depends on local env
-        raise ConversionError(
-            "PyMuPDF (pymupdf / import name 'fitz') is required for PDF->HTML "
-            "but is not installed."
-        ) from e
+    with _open_pdf(in_path) as doc:
+        try:
+            body = [
+                f'<section class="pdf-page" id="page-{i + 1}">{page.get_text("html")}</section>'
+                for i, page in enumerate(doc)
+            ]
+        except Exception as e:
+            raise ConversionError(f"Could not read PDF: {e}") from e
+        # The web layer stores uploads under random names, so the file name
+        # is no title; prefer the PDF's own metadata.
+        title = (doc.metadata or {}).get("title") or "PDF document"
 
-    try:
-        with fitz.open(in_path) as doc:
-            body = []
-            for i, page in enumerate(doc):
-                frag = page.get_text("html")
-                body.append(f'<section class="pdf-page" id="page-{i + 1}">{frag}</section>')
-    except Exception as e:
-        raise ConversionError(f"Could not read PDF: {e}") from e
-
-    title = os.path.splitext(os.path.basename(in_path))[0]
     html = (
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+        "<!DOCTYPE html>\n<html>\n<head>\n"
         "<meta charset=\"utf-8\">\n"
-        f"<title>{title}</title>\n"
+        f"<title>{escape(title)}</title>\n"
         "</head>\n<body>\n" + "\n".join(body) + "\n</body>\n</html>\n"
     )
     with open(out_path, "w", encoding="utf-8") as fh:
@@ -218,23 +235,7 @@ def _preflight_pdf(in_path: str) -> int:
     scanned/image-only PDFs (no text layer at all — OCR is not supported), so
     the user gets an explanation instead of an empty or garbled docx.
     """
-    try:
-        import fitz  # PyMuPDF
-    except ImportError as e:  # pragma: no cover - depends on local env
-        raise ConversionError(
-            "PyMuPDF (pymupdf / import name 'fitz') is required for PDF->DOCX "
-            "but is not installed."
-        ) from e
-
-    try:
-        doc = fitz.open(in_path)
-    except Exception as e:
-        raise ConversionError(f"Could not read PDF: {e}") from e
-    with doc:
-        if doc.needs_pass:
-            raise ConversionError(
-                "This PDF is password-protected. Remove the password and try again."
-            )
+    with _open_pdf(in_path) as doc:
         pages = doc.page_count
         if pages == 0:
             raise ConversionError("This PDF contains no pages.")
@@ -318,9 +319,7 @@ def _compact_docx(path: str, vscale: float = 1.0) -> None:
 
 
 def _pdf_page_count(path: str) -> int:
-    import fitz
-
-    with fitz.open(path) as doc:
+    with _fitz().open(path) as doc:
         return doc.page_count
 
 
@@ -343,6 +342,17 @@ def _safe_remove(path: str) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+def _strangled(doc) -> bool:
+    """``fixup.has_strangled_tables`` without letting an analysis bug abort
+    the whole conversion (like every other fixup step, it's best-effort)."""
+    from . import pdf_docx_fixup as fixup
+
+    try:
+        return fixup.has_strangled_tables(doc)
+    except Exception:
+        return False
 
 
 def _run_pdf2docx(in_path: str, out_path: str, **settings) -> None:
@@ -397,7 +407,7 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
             fixup.fix_stream_table_widths(doc, layout)
         except Exception:
             pass
-        if fixup.has_strangled_tables(doc):
+        if _strangled(doc):
             # invented layout tables beyond repair — re-convert without
             # stream tables and rebuild the rows with tab stops instead
             _run_pdf2docx(work_path, base_path,
@@ -415,7 +425,7 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
                     fixup.fix_stream_table_widths(doc, layout)
                 except Exception:
                     pass
-                if fixup.has_strangled_tables(doc):
+                if _strangled(doc):
                     _run_pdf2docx(in_path, base_path,
                                   parse_stream_table=False)
                     doc = Document(base_path)

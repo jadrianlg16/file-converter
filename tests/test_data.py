@@ -185,3 +185,54 @@ def test_registry_wiring():
     # xls is source-only: nothing converts *to* xls.
     for src in ["csv", "json", "xlsx", "yaml"]:
         assert get_converter(src, "xls") is None
+
+
+def test_export_html_is_a_complete_utf8_document(tmp_path):
+    """A bare <table> fragment has no charset; browsers may show mojibake."""
+    p = os.path.join(str(tmp_path), "in.csv")
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("name\nJosé\n")
+    out = os.path.join(str(tmp_path), "out.html")
+    data.export_table(p, out)
+    html = open(out, encoding="utf-8").read()
+    assert html.startswith("<!DOCTYPE html>")
+    assert '<meta charset="utf-8">' in html
+    assert "José" in html
+
+
+@pytest.mark.parametrize("ext", ["json", "yaml"])
+def test_utf8_bom_input_is_accepted(tmp_path, ext):
+    # Notepad and Windows PowerShell 5.1 write UTF-8 with a BOM.
+    body = '[{"a": 1, "b": "x"}]' if ext == "json" else "- a: 1\n  b: x\n"
+    p = os.path.join(str(tmp_path), f"in.{ext}")
+    with open(p, "wb") as fh:
+        fh.write(b"\xef\xbb\xbf" + body.encode("utf-8"))
+    out = os.path.join(str(tmp_path), "out.csv")
+    data.convert_tabular(p, out)
+    df = pd.read_csv(out)
+    assert list(df.columns) == ["a", "b"]
+    assert df["b"].tolist() == ["x"]
+
+
+@pytest.mark.parametrize("ext,sep", [("csv", ","), ("tsv", "\t")])
+def test_windows_1252_delimited_input_is_decoded(tmp_path, ext, sep):
+    # What Excel on Windows writes for "CSV" — not UTF-8.
+    import json
+
+    p = os.path.join(str(tmp_path), f"in.{ext}")
+    with open(p, "wb") as fh:
+        fh.write(f"Año{sep}Señor\n2024{sep}Peña €\n".encode("cp1252"))
+    out = os.path.join(str(tmp_path), "out.json")
+    data.convert_tabular(p, out)
+    assert json.load(open(out, encoding="utf-8")) == [{"Año": 2024, "Señor": "Peña €"}]
+
+
+def test_utf8_bom_csv_header_is_clean(tmp_path):
+    import json
+
+    p = os.path.join(str(tmp_path), "in.csv")
+    with open(p, "wb") as fh:
+        fh.write(b"\xef\xbb\xbfid,name\n1,Ana\n")
+    out = os.path.join(str(tmp_path), "out.json")
+    data.convert_tabular(p, out)
+    assert json.load(open(out, encoding="utf-8")) == [{"id": 1, "name": "Ana"}]

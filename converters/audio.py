@@ -1,4 +1,4 @@
-"""Audio conversions — OWNED BY THE "media" AGENT (shared with images.py).
+"""Audio conversions (ffmpeg).
 
 Scope:
   * Any -> any across: mp3, wav, ogg, flac, m4a, aac (via ffmpeg).

@@ -10,7 +10,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-import uuid
+from pathlib import Path
 
 
 class ConversionError(Exception):
@@ -80,18 +80,23 @@ def soffice_convert(in_path: str, out_dir: str, target_ext: str,
                     convert_filter: str | None = None) -> str:
     """Convert via LibreOffice headless. Returns the produced file path.
 
-    Each call uses a private profile dir so concurrent gunicorn workers don't
-    clash on a shared UserInstallation lock.
+    Each call uses a private, throwaway profile dir so concurrent gunicorn
+    workers don't clash on a shared UserInstallation lock. The profile is
+    deleted afterwards — LibreOffice writes several MB into it per run.
     """
     require("soffice")
     os.makedirs(out_dir, exist_ok=True)
-    profile = os.path.join(tempfile.gettempdir(), f"lo_{uuid.uuid4().hex}")
+    profile = tempfile.mkdtemp(prefix="lo_profile_")
     to_arg = f"{target_ext}:{convert_filter}" if convert_filter else target_ext
-    run([
-        "soffice", "--headless", "--norestore", "--nolockcheck", "--nodefault",
-        f"-env:UserInstallation=file://{profile}",
-        "--convert-to", to_arg, "--outdir", out_dir, in_path,
-    ], timeout=240)
+    try:
+        run([
+            "soffice", "--headless", "--norestore", "--nolockcheck", "--nodefault",
+            # as_uri() yields a valid file URL on both POSIX and Windows paths
+            f"-env:UserInstallation={Path(profile).as_uri()}",
+            "--convert-to", to_arg, "--outdir", out_dir, in_path,
+        ], timeout=240)
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
     base = os.path.splitext(os.path.basename(in_path))[0]
     produced = os.path.join(out_dir, f"{base}.{target_ext}")
     if not os.path.exists(produced):

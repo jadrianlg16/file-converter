@@ -326,3 +326,53 @@ def test_pdf_to_docx_rejects_encrypted(tmp_path):
     doc.close()
     with pytest.raises(ConversionError, match="password"):
         documents.pdf_to_docx(pdf, str(tmp_path / "out.docx"))
+
+
+@pytest.mark.parametrize("fn", ["pdf_to_txt", "pdf_to_md", "pdf_to_html"])
+def test_pdf_text_exports_reject_encrypted_clearly(tmp_path, fn):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "secret text here")
+    pdf = str(tmp_path / "enc.pdf")
+    doc.save(pdf, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw")
+    doc.close()
+    with pytest.raises(ConversionError, match="password"):
+        getattr(documents, fn)(pdf, str(tmp_path / "out"))
+
+
+def test_pdf_to_html_title_comes_from_metadata_and_is_escaped(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "body")
+    doc.set_metadata({"title": "Q3 <draft> & notes"})
+    pdf = str(tmp_path / "in.pdf")
+    doc.save(pdf)
+    doc.close()
+    out = str(tmp_path / "out.html")
+    documents.pdf_to_html(pdf, out)
+    html = open(out, encoding="utf-8").read()
+    assert "<title>Q3 &lt;draft&gt; &amp; notes</title>" in html
+
+
+def test_pdf_to_md_collapses_blank_runs(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Page one")
+    doc.new_page()  # blank page in the middle
+    doc.new_page().insert_text((72, 72), "Page three")
+    pdf = str(tmp_path / "in.pdf")
+    doc.save(pdf)
+    doc.close()
+    out = str(tmp_path / "out.md")
+    documents.pdf_to_md(pdf, out)
+    assert open(out, encoding="utf-8").read() == "Page one\n\nPage three\n"
+
+
+def test_strangled_table_check_failure_is_not_fatal(monkeypatch):
+    from converters import pdf_docx_fixup
+
+    def boom(_doc):
+        raise RuntimeError("analysis bug")
+
+    monkeypatch.setattr(pdf_docx_fixup, "has_strangled_tables", boom)
+    assert documents._strangled(object()) is False

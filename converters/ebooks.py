@@ -1,4 +1,4 @@
-"""Ebook conversions — OWNED BY THE "data+ebooks" AGENT (with data.py).
+"""Ebook conversions (Calibre's `ebook-convert`).
 
 Scope (via Calibre's `ebook-convert`):
   * epub, mobi, azw3, fb2 -> each other (the ebook-specific set).
