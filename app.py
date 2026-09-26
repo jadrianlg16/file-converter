@@ -1,3 +1,9 @@
+"""Legacy desktop tool: Markdown -> DOCX with a small tkinter window.
+
+Independent of the web service (web_app.py) and its converters package.
+Needs: markdown, python-docx, beautifulsoup4 (see requirements.txt).
+Run: python app.py
+"""
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
@@ -195,9 +201,12 @@ class App(tk.Tk):
                     0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out}")
                 )
             except Exception as e:
-                self.after(0, lambda: self.status_var.set(f"Error: {e}"))
+                # Bind the message now: Python unbinds `e` when this block
+                # exits, before Tk gets around to running the callbacks.
+                msg = str(e)
+                self.after(0, lambda: self.status_var.set(f"Error: {msg}"))
                 self.after(
-                    0, lambda: messagebox.showerror("Conversion failed", str(e))
+                    0, lambda: messagebox.showerror("Conversion failed", msg)
                 )
             finally:
                 self.after(0, lambda: self.convert_btn.config(state="normal"))

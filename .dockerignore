@@ -1,3 +1,7 @@
-__pycache__/
-*.pyc
+# Patterns match from the context root; **/ reaches into subfolders
+# (COPY converters would otherwise bake host-compiled .pyc into the image).
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.git
 data/
