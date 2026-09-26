@@ -1,24 +1,32 @@
 # Web service + conversion engine (Python deps). System binaries (pandoc,
 # libreoffice, calibre, ffmpeg) are installed via apt in the Dockerfile.
-flask>=3.0
-gunicorn>=21.2
+#
+# Exact pins: this is the set the test suite last passed with, so an image
+# rebuild can't silently pull a new major (pandas, Pillow, PyMuPDF...).
+# Everything these pull in is locked in constraints.txt. To upgrade: bump a
+# pin, reinstall into a fresh venv, run the suite, then refresh
+# constraints.txt from `pip freeze` (see README).
+-c constraints.txt
+
+flask==3.1.3
+gunicorn==26.2.0
 
 # Documents
-weasyprint>=60          # pandoc PDF engine (no TeX needed)
-pymupdf>=1.24           # PDF -> text/html/image extraction (import: fitz)
-pdf2docx>=0.5           # PDF -> DOCX (best effort); pulls in python-docx
-python-docx>=1.1        # docx post-processing (page-spill fixup in documents.py)
-markdown                # legacy/helpers
-beautifulsoup4
-lxml
+weasyprint==70.0        # pandoc PDF engine (no TeX needed)
+pymupdf==1.28.2         # PDF -> text/html/image extraction (import: fitz)
+pdf2docx==0.5.13        # PDF -> DOCX (best effort); pulls in python-docx
+python-docx==1.2.0      # docx post-processing (page-spill fixup in documents.py)
+markdown==3.11          # only used by the legacy app.py
+beautifulsoup4==4.15.0  # only used by the legacy app.py
+lxml==6.1.3
 
 # Images
-pillow>=10
-cairosvg>=2.7           # SVG -> raster
+pillow==12.3.0
+cairosvg==2.9.1         # SVG -> raster
 
 # Data
-pandas>=2.0
-openpyxl>=3.1           # xlsx read/write
-xlrd>=2.0               # legacy .xls read
-pyyaml>=6
-tabulate>=0.9           # pandas .to_markdown()
+pandas==3.0.6
+openpyxl==3.1.5         # xlsx read/write
+xlrd==2.0.2             # legacy .xls read
+pyyaml==6.0.3
+tabulate==0.10.0        # pandas .to_markdown()

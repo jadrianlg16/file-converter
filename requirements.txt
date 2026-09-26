@@ -1,4 +1,4 @@
-markdown
-python-docx
-beautifulsoup4
-lxml
+markdown==3.11
+python-docx==1.2.0
+beautifulsoup4==4.15.0
+lxml==6.1.3

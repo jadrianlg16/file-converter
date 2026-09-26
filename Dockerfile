@@ -22,7 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.web.txt .
+# requirements.web.txt pins direct deps and pulls in constraints.txt (-c).
+COPY requirements.web.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.web.txt
 
 COPY web_app.py ./
