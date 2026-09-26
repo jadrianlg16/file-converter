@@ -99,6 +99,42 @@ def test_bad_requests_are_json_400s(client, name, target):
     assert resp.is_json and resp.get_json()["error"]
 
 
+@pytest.mark.parametrize("upload,expected", [
+    ("Señor López – contrato.csv", "Señor López – contrato.json"),
+    ("Año 2026.csv", "Año 2026.json"),   # secure_filename made this "Ano_2026"
+    ("реестр.csv", "реестр.json"),       # ...and this "converted"
+    ("plain name.csv", "plain name.json"),
+])
+def test_download_keeps_the_original_name(client, upload, expected):
+    from urllib.parse import unquote
+
+    resp = _post(client, upload, b"a\n1\n", "json")
+    try:
+        assert resp.status_code == 200
+        disposition = resp.headers["Content-Disposition"]
+        if expected.isascii():
+            assert f'filename="{expected}"' in disposition or f"filename={expected}" in disposition
+        else:
+            # what the UI's parseFilename() reads
+            star = disposition.split("filename*=UTF-8''", 1)[1].split(";")[0]
+            assert unquote(star) == expected
+    finally:
+        resp.close()
+
+
+@pytest.mark.parametrize("upload,stem", [
+    ("C:\\Users\\me\\Desktop\\report.csv", "report"),   # full path from old browsers
+    ("../../etc/passwd.csv", "passwd"),
+    ('bad<>:"|?*name.csv', "bad_______name"),
+    ("tab\there.csv", "tab_here"),
+    ("  .hidden .csv", "hidden"),
+    ("... .csv", "converted"),
+    ("x" * 300 + ".csv", "x" * 150),
+])
+def test_download_stem_is_sanitised(upload, stem):
+    assert web_app._download_stem(upload) == stem
+
+
 def test_ui_is_served_regardless_of_working_directory(client, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     resp = client.get("/")

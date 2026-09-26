@@ -12,10 +12,10 @@ Source format is auto-detected from the uploaded filename's extension.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 from flask import Flask, jsonify, request, send_file
-from werkzeug.utils import secure_filename
 
 from converters import FORMATS, get_converter, matrix
 from converters.engine import ConversionError
@@ -39,6 +39,24 @@ flask_app.config["MAX_CONTENT_LENGTH"] = _upload_mb * 1024 * 1024
 
 def _ext(filename: str) -> str:
     return os.path.splitext(filename)[1].lower().lstrip(".")
+
+
+# Control characters plus what Windows forbids in file names (a superset of
+# what macOS/Linux forbid).
+_UNSAFE_NAME_CHARS = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')
+
+
+def _download_stem(filename: str) -> str:
+    """The upload's name minus its extension, for the download.
+
+    Only used as a name, never as a path on disk (uploads are stored under a
+    random id). Unlike werkzeug's secure_filename this keeps accents and
+    non-Latin scripts ("Año" stays "Año", not "Ano"): send_file emits an
+    RFC 5987 ``filename*`` for non-ASCII names, which the UI decodes.
+    """
+    name = re.split(r"[\\/]", filename)[-1]  # some browsers send a full path
+    stem = _UNSAFE_NAME_CHARS.sub("_", os.path.splitext(name)[0]).strip(" .")
+    return stem[:150].rstrip(" .") or "converted"
 
 
 @flask_app.errorhandler(413)
@@ -81,7 +99,7 @@ def convert():
         return jsonify({"error": verdict.error}), verdict.status
 
     job = uuid.uuid4().hex
-    stem = secure_filename(os.path.splitext(f.filename)[0]) or "converted"
+    stem = _download_stem(f.filename)
     in_path = os.path.join(WORK, f"{job}.{src}")
     out_path = os.path.join(WORK, f"{job}.{target}")
     f.save(in_path)
