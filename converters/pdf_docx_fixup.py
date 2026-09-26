@@ -44,7 +44,7 @@ from __future__ import annotations
 import copy
 import io
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import fitz  # PyMuPDF
 from docx.enum.table import WD_ROW_HEIGHT_RULE  # noqa: F401  (re-export convenience)
@@ -99,6 +99,9 @@ class Span:
     bold: bool
     italic: bool
     color: int = 0  # sRGB int as reported by PyMuPDF (0 = black)
+    lead_space: bool = False   # raw text had leading/trailing whitespace
+    trail_space: bool = False  # (stripped, but still a word boundary)
+    parts: list = field(default_factory=list)  # coalesced pieces, own format
 
 
 @dataclass
@@ -161,23 +164,31 @@ def _mk_span(sp: dict) -> Span | None:
         italic=bool(flags & 2) or "italic" in fname.lower()
               or "oblique" in fname.lower(),
         color=int(sp.get("color", 0)),
+        lead_space=text[:1].isspace(), trail_space=text[-1:].isspace(),
     )
 
 
 def _coalesce_row(spans: list) -> list:
-    """Merge spans on one baseline whose gap is just word spacing."""
+    """Merge spans on one baseline whose gap is just word spacing. The merged
+    span keeps each piece in ``parts`` so runs retain their own format."""
     spans = sorted(spans, key=lambda s: s.x0)
     out: list[Span] = []
     for sp in spans:
         if out and sp.x0 - out[-1].x1 < max(6.0, out[-1].size * 0.6):
             prev = out[-1]
             gap = sp.x0 - prev.x1
-            sep = " " if gap > prev.size * 0.12 else ""
+            # PyMuPDF often keeps the word space inside a span's text (which
+            # _mk_span strips), so the bbox gap alone can read as zero
+            sep = (" " if gap > prev.size * 0.12 or prev.trail_space
+                   or sp.lead_space else "")
             out[-1] = Span(
                 text=prev.text + sep + sp.text, x0=prev.x0, x1=sp.x1,
                 y0=min(prev.y0, sp.y0), y1=max(prev.y1, sp.y1),
                 size=prev.size, font=prev.font, bold=prev.bold,
-                italic=prev.italic,
+                italic=prev.italic, color=prev.color,
+                trail_space=sp.trail_space,
+                parts=(prev.parts or [prev])
+                + [replace(sp, text=sep + sp.text)],
             )
         else:
             out.append(sp)
@@ -394,11 +405,13 @@ def _detect_bands(doc, page_records: list, hlines_per_page: list,
         band = bands[zone]
         if not band.blocks:
             continue
+        # only trust exact repeats or page-number blocks, rule or not: any
+        # other varying digits (folios, dates) would be frozen to the first
+        # occurrence while the real per-page values get redacted
+        band.blocks = [b for b in band.blocks
+                       if b.exact or b.has_page_token]
         if not rules[zone]:
-            # no rule to delimit the band: only trust exact repeats or
-            # page-number blocks, contiguous from the page edge
-            band.blocks = [b for b in band.blocks
-                           if b.exact or b.has_page_token]
+            # no rule to delimit the band: contiguous from the page edge
             if zone == "header":
                 band.blocks.sort(key=lambda b: b.bbox[1])
                 kept, reach = [], H * _EDGE_START
@@ -514,9 +527,10 @@ def redact_bands(src: str, dst: str, layout: Layout) -> None:
     try:
         graphics_flag = getattr(fitz, "PDF_REDACT_LINE_ART_REMOVE_IF_COVERED", None)
         image_flag = getattr(fitz, "PDF_REDACT_IMAGE_REMOVE", 2)
+        image_none = getattr(fitz, "PDF_REDACT_IMAGE_NONE", 0)
         for pno in range(doc.page_count):
             page = doc[pno]
-            rects = []
+            rects, img_rects = [], []
             for band in (layout.header, layout.footer):
                 if not band:
                     continue
@@ -532,17 +546,22 @@ def redact_bands(src: str, dst: str, layout: Layout) -> None:
                 for img in band.images:
                     r = img["occurrences"].get(pno)
                     if r:
-                        rects.append(fitz.Rect(r.x0 - 1, r.y0 - 1,
-                                               r.x1 + 1, r.y1 + 1))
-            if not rects:
-                continue
-            for r in rects:
-                page.add_redact_annot(r)
-            if graphics_flag is not None:
-                page.apply_redactions(images=image_flag,
-                                      graphics=graphics_flag)
-            else:  # older PyMuPDF without the graphics parameter
-                page.apply_redactions(images=image_flag)
+                        img_rects.append(fitz.Rect(r.x0 - 1, r.y0 - 1,
+                                                   r.x1 + 1, r.y1 + 1))
+            # two passes: text/rule rects must leave every image alone (a
+            # background or body image merely touching a band block would
+            # otherwise be removed whole); only band logos remove images
+            for batch, images in ((rects, image_none),
+                                  (img_rects, image_flag)):
+                if not batch:
+                    continue
+                for r in batch:
+                    page.add_redact_annot(r)
+                if graphics_flag is not None:
+                    page.apply_redactions(images=images,
+                                          graphics=graphics_flag)
+                else:  # older PyMuPDF without the graphics parameter
+                    page.apply_redactions(images=images)
         doc.save(dst, garbage=3, deflate=True)
     finally:
         doc.close()
@@ -569,6 +588,14 @@ def _apply_span_format(run, span: Span) -> None:
         run.font.color.rgb = RGBColor((span.color >> 16) & 0xFF,
                                       (span.color >> 8) & 0xFF,
                                       span.color & 0xFF)
+
+
+def _add_span_runs(paragraph, span: Span, tail: str = "") -> None:
+    """Runs for ``span``: one per coalesced piece, each in its own format."""
+    pieces = span.parts or [span]
+    for k, piece in enumerate(pieces):
+        text = piece.text + (tail if k == len(pieces) - 1 else "")
+        _apply_span_format(paragraph.add_run(text), piece)
 
 
 _FONT_MAP = [
@@ -611,6 +638,9 @@ def _add_field(paragraph, instr: str, shown: str, span: Span) -> None:
 def _emit_span(paragraph, span: Span, markers: list, trailing_space: bool) -> None:
     """Write one span into ``paragraph`` as formatted runs, substituting
     PAGE/NUMPAGES fields at the span-local marker offsets."""
+    if not markers:
+        _add_span_runs(paragraph, span, " " if trailing_space else "")
+        return
     text = span.text
     cursor = 0
     for ms, me, instr in sorted(markers):
@@ -794,6 +824,17 @@ def _build_band_content(hf, band: Band, layout: Layout, section) -> float:
     return est + 5.0  # shrunk trailing paragraph + border
 
 
+def _first_page_band(band: Band) -> Band | None:
+    """The part of ``band`` present on page 1 (None when nothing is)."""
+    blocks = [b for b in band.blocks if 0 in b.occurrences]
+    images = [i for i in band.images if 0 in i["occurrences"]]
+    rule = (band.rule if band.rule and 0 in band.rule["occurrences"]
+            else None)
+    if not blocks and not images and not rule:
+        return None
+    return Band(blocks=blocks, rule=rule, images=images)
+
+
 def build_header_footer(doc, layout: Layout) -> None:
     """Rebuild the detected repeated bands as real Word header/footer on the
     first section (later sections inherit — pdf2docx never writes its own).
@@ -803,13 +844,18 @@ def build_header_footer(doc, layout: Layout) -> None:
     if layout.header:
         header_h = _build_band_content(section.header, layout.header,
                                        layout, section)
-        if not layout.header.on_first_page:
-            section.different_first_page_header_footer = True
     if layout.footer:
         footer_h = _build_band_content(section.footer, layout.footer,
                                        layout, section)
-        if not layout.footer.on_first_page and layout.header is None:
-            section.different_first_page_header_footer = True
+    if any(b and not b.on_first_page for b in (layout.header, layout.footer)):
+        # titlePg blanks BOTH first-page parts: rebuild whatever part of each
+        # band page 1 does carry (already redacted from its body) there
+        section.different_first_page_header_footer = True
+        for band, hf in ((layout.header, section.first_page_header),
+                         (layout.footer, section.first_page_footer)):
+            first = _first_page_band(band) if band else None
+            if first:
+                _build_band_content(hf, first, layout, section)
     for sec in doc.sections:
         sec.header_distance = Pt(14)
         sec.footer_distance = Pt(14)
@@ -838,14 +884,20 @@ def _starts_new_page(sect_pr) -> bool:
 def _body_pages(doc) -> list:
     """Split top-level body elements into per-page groups (pdf2docx emits one
     page-breaking section per source page; continuous/column sections stay
-    within their page)."""
+    within their page). A sectPr's type says how its *own* section starts,
+    so a section ends its page only when the NEXT sectPr breaks the page."""
+    els = list(doc.element.body)
+    sects = [el.find(f"{W_NS}pPr/{W_NS}sectPr") if el.tag == f"{W_NS}p"
+             else el if el.tag == f"{W_NS}sectPr" else None for el in els]
+    idx = [k for k, s in enumerate(sects) if s is not None]
+    ends_page = {a for a, b in zip(idx, idx[1:])
+                 if _starts_new_page(sects[b])}
     pages, current = [], []
-    for el in doc.element.body:
+    for k, el in enumerate(els):
         tag = el.tag
         if tag == f"{W_NS}p":
             current.append(el)
-            spr = el.find(f"{W_NS}pPr/{W_NS}sectPr")
-            if spr is not None and _starts_new_page(spr):
+            if k in ends_page:
                 pages.append(current)
                 current = []
         elif tag == f"{W_NS}tbl":
@@ -856,6 +908,15 @@ def _body_pages(doc) -> list:
     if current:
         pages.append(current)
     return pages
+
+
+_OPAQUE_TAGS = (f"{W_NS}drawing", f"{W_NS}pict", f"{W_NS}hyperlink")
+
+
+def _has_opaque(el) -> bool:
+    """True when ``el`` holds content a text-only rebuild from PDF spans
+    would drop (inline pictures, VML, hyperlinks)."""
+    return next(el.iter(*_OPAQUE_TAGS), None) is not None
 
 
 def _iter_container_paragraphs(container):
@@ -991,7 +1052,8 @@ def flatten_column_sections(doc, layout: Layout) -> None:
             sq = _squash("".join(texts))
             matched = [r for r in rows if r.squash and r.squash in sq]
             covered = sum(len(r.squash) for r in matched)
-            if matched and covered == len(sq):
+            if (matched and covered == len(sq)
+                    and not any(_has_opaque(el) for el in sec["els"])):
                 # rebuild from geometry: one paragraph per source line
                 matched.sort(key=lambda r: r.spans[0].y0)
                 cl_x0 = min(s.x0 for r in matched for s in r.spans)
@@ -1012,14 +1074,17 @@ def flatten_column_sections(doc, layout: Layout) -> None:
                     if rw < (cl_x1 - cl_x0) * 0.85 and abs(rcx - cl_cx) <= 8:
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for si, sp in enumerate(r.spans):
-                        run = p.add_run(sp.text +
-                                        (" " if si < len(r.spans) - 1 else ""))
-                        _apply_span_format(run, sp)
+                        _add_span_runs(p, sp,
+                                       " " if si < len(r.spans) - 1 else "")
                 for el in sec["els"]:
                     body.remove(el)
             else:
-                # fallback: move the existing elements into the cell
-                first = True
+                # fallback: move the existing elements into the cell, in
+                # order, ahead of its empty placeholder paragraph — a cell
+                # must end with a w:p, so the placeholder goes only when a
+                # paragraph was moved last
+                placeholder = cell.paragraphs[0]._p
+                last = None
                 for el in sec["els"]:
                     if el is sec["host"]:
                         ppr = el.find(f"{W_NS}pPr")
@@ -1030,11 +1095,10 @@ def flatten_column_sections(doc, layout: Layout) -> None:
                         if not el.findall(f"{W_NS}r"):
                             body.remove(el)
                             continue
-                    if first and not cell.paragraphs[0].text:
-                        cell.paragraphs[0]._p.addprevious(el)
-                    else:
-                        cell._tc.append(el)
-                    first = False
+                    placeholder.addprevious(el)
+                    last = el
+                if last is not None and last.tag == f"{W_NS}p":
+                    placeholder.getparent().remove(placeholder)
             # drop the section break itself (host handled above; body-level
             # sectPr for mid-document groups should not survive either)
             if sec["host"] is not None and sec["host"].getparent() is not None:
@@ -1107,7 +1171,10 @@ def has_strangled_tables(doc) -> bool:
                     li = int(pf.left_indent or 0) // 635
                     ri = int(pf.right_indent or 0) // 635
                     usable = col_w - li - ri - 216  # minus default cell margins
-                    if usable < 50 * _TWIPS_PER_PT:
+                    # only indents strangle: a genuinely narrow column (qty,
+                    # unit) is fine, and re-converting would undo its widths
+                    if usable < 50 * _TWIPS_PER_PT and li + ri and (
+                            usable < 0 or col_w - 216 >= 50 * _TWIPS_PER_PT):
                         return True
     return False
 
@@ -1268,7 +1335,8 @@ def merge_row_paragraphs(doc, layout: Layout) -> None:
                 if a == row.squash and j - i >= 2:
                     hit = (ridx, row, j)
                     break
-            if not hit:
+            # the merged paragraph is rebuilt from PDF text only
+            if not hit or any(_has_opaque(p._p) for p in paras[i:hit[2]]):
                 i += 1
                 continue
             ridx, row, j = hit
@@ -1295,8 +1363,7 @@ def merge_row_paragraphs(doc, layout: Layout) -> None:
                         pf.tab_stops.add_tab_stop(Pt(sp.x0 - margin_l),
                                                   WD_TAB_ALIGNMENT.LEFT)
                     merged.add_run("\t")
-                r = merged.add_run(sp.text)
-                _apply_span_format(r, sp)
+                _add_span_runs(merged, sp)
             for p in paras[i:j]:
                 p._p.getparent().remove(p._p)
             paras[i:j] = [merged]
@@ -1350,11 +1417,12 @@ def split_list_breaks(doc) -> None:
 
         # partition runs at break-runs
         runs = [c for c in el if c.tag == f"{W_NS}r"]
-        segments, cur = [], []
+        segments, breaks, cur = [], [], []
         for r in runs:
             if r.find(f"{W_NS}br") is not None and len(
                     [c for c in r if c.tag != f"{W_NS}rPr"]) == 1:
                 segments.append(cur)
+                breaks.append(r)  # breaks[k] precedes segments[k + 1]
                 cur = []
             else:
                 cur.append(r)
@@ -1373,8 +1441,10 @@ def split_list_breaks(doc) -> None:
         ppr = el.find(f"{W_NS}pPr")
         created = [el]
         current_target = el
-        for seg in segments[1:]:
+        dropped = []
+        for seg, brk in zip(segments[1:], breaks):
             if seg and _LIST_START.match(_seg_text(seg)):
+                dropped.append(brk)
                 np = OxmlElement("w:p")
                 if ppr is not None:
                     nppr = copy.deepcopy(ppr)
@@ -1388,13 +1458,13 @@ def split_list_breaks(doc) -> None:
                 for r in seg:
                     np.append(r)
             else:
-                for r in seg:
+                # a non-list line keeps its own line break (dropping it would
+                # glue its first word onto the previous line)
+                for r in [brk] + seg:
                     current_target.append(r)
-        # remove now-orphaned break runs from the original paragraph
-        for r in list(el.findall(f"{W_NS}r")):
-            if r.find(f"{W_NS}br") is not None and len(
-                    [c for c in r if c.tag != f"{W_NS}rPr"]) == 1:
-                el.remove(r)
+        # remove the now-orphaned breaks that preceded the split-off items
+        for r in dropped:
+            r.getparent().remove(r)
         # a section break must stay on the LAST paragraph of the page
         sect = ppr.find(f"{W_NS}sectPr") if ppr is not None else None
         if sect is not None and created[-1] is not el:
