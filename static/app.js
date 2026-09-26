@@ -41,6 +41,7 @@
   var state = {
     formats: null,        // /api/formats -> { ext: {name, category, targets:[...]} }
     formatsError: null,   // error message if the formats fetch failed
+    maxUploadMb: null,    // server's upload cap (checked before uploading)
     file: null,           // currently selected File
     srcExt: null,         // detected source extension (lowercase, no dot)
     target: null,         // chosen target extension
@@ -108,6 +109,7 @@
       })
       .then(function (data) {
         state.formats = (data && data.formats) || {};
+        state.maxUploadMb = (data && data.maxUploadMb) || null;
         state.formatsError = null;
         renderDemoBanner(data && data.demo);
       })
@@ -177,9 +179,25 @@
 
     if (state.formatsError) {
       hide(els.targetsSection);
-      hide(els.actionsSection);
       setStatus(state.formatsError, "error");
-      show(els.actionsSection);
+      updateConvertButton();
+      return;
+    }
+    if (!state.formats) {
+      // /api/formats hasn't answered yet; init re-renders once it does.
+      hide(els.targetsSection);
+      setStatus("Loading supported formats…", "info");
+      updateConvertButton();
+      return;
+    }
+
+    if (state.maxUploadMb && state.file.size > state.maxUploadMb * 1024 * 1024) {
+      hide(els.targetsSection);
+      setStatus(
+        "This file is " + formatBytes(state.file.size) + " — the limit here is " +
+          state.maxUploadMb + " MB.",
+        "error"
+      );
       updateConvertButton();
       return;
     }
@@ -343,9 +361,10 @@
 
     fetch("/convert", { method: "POST", body: form })
       .then(function (res) {
-        var ctype = res.headers.get("Content-Type") || "";
-        if (res.ok && ctype.indexOf("application/json") === -1) {
-          // Successful conversion: a file stream.
+        // Any 2xx is the converted file — including .json outputs, which the
+        // server sends as application/json, so the content type can't be
+        // used to tell success from error. Errors are always non-2xx.
+        if (res.ok) {
           var name = parseFilename(
             res.headers.get("Content-Disposition"),
             fallbackName()
@@ -441,7 +460,10 @@
   // ---- Init ---------------------------------------------------------------
   initTheme();
   loadFormats().then(function () {
-    if (state.formatsError) {
+    if (state.file) {
+      // A file was picked before the format list arrived — render it now.
+      renderTargets();
+    } else if (state.formatsError) {
       setStatus(state.formatsError, "error");
       show(els.actionsSection);
     }
