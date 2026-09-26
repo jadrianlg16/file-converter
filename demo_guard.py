@@ -10,6 +10,8 @@ bounding worst-case abuse of a shared box:
   DEMO_DAILY_BUDGET    global conversions per UTC day, all visitors (default 200)
   DEMO_BLOCK           comma-separated extensions to refuse entirely (default "")
   DEMO_REPO_URL        self-host link shown in limit messages
+  DEMO_PROXY_HOPS      reverse proxies in front of the app that append to
+                       X-Forwarded-For (default 1; 0 = exposed directly)
 
 Counters live in a small SQLite database in DATA_DIR so they are shared
 across gunicorn workers and survive restarts. Stdlib-only on purpose — the
@@ -52,6 +54,7 @@ class DemoGuard:
             if e.strip()
         }
         self.repo_url = os.environ.get("DEMO_REPO_URL", "https://github.com/")
+        self.proxy_hops = max(0, _env_int("DEMO_PROXY_HOPS", 1))
         self.db_path = db_path
         if self.enabled:
             self._init_db()
@@ -133,9 +136,18 @@ class DemoGuard:
             )
 
 
-def client_ip(headers: dict, remote_addr: str | None) -> str:
-    """Real client IP behind Cloudflare/Caddy; falls back to the socket peer."""
-    forwarded = headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+def client_ip(headers, remote_addr: str | None, proxy_hops: int = 1) -> str:
+    """Real client IP when running behind ``proxy_hops`` reverse proxies.
+
+    Each proxy *appends* the peer it saw to X-Forwarded-For, so only the last
+    ``proxy_hops`` entries are trustworthy — everything to their left came
+    from the client and can be forged (taking the leftmost entry would let
+    anyone dodge the per-IP limit with a fake header). With ``proxy_hops=0``
+    the header is ignored and the socket peer is used.
+    """
+    if proxy_hops > 0:
+        chain = [p.strip() for p in headers.get("X-Forwarded-For", "").split(",")
+                 if p.strip()]
+        if chain:
+            return chain[-min(proxy_hops, len(chain))]
     return remote_addr or "unknown"

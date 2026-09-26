@@ -119,11 +119,33 @@ class TestPersistence(GuardTestCase):
 
 
 class TestClientIp(unittest.TestCase):
-    def test_forwarded_header_wins(self):
+    def test_one_proxy_uses_the_entry_it_appended(self):
         self.assertEqual(
             client_ip({"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}, "172.17.0.1"),
-            "9.9.9.9",
+            "10.0.0.1",
         )
+
+    def test_two_proxies(self):
+        # client -> Cloudflare (appends client) -> Caddy (appends Cloudflare)
+        headers = {"X-Forwarded-For": "6.6.6.6, 9.9.9.9, 104.16.0.1"}
+        self.assertEqual(client_ip(headers, "172.17.0.1", proxy_hops=2), "9.9.9.9")
+
+    def test_forged_prefix_is_ignored(self):
+        # The same real client sending a different fake entry every time
+        # must still resolve to one IP, or the per-IP limit is useless.
+        seen = {
+            client_ip({"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.7"}, "172.17.0.1")
+            for i in range(20)
+        }
+        self.assertEqual(seen, {"203.0.113.7"})
+
+    def test_zero_hops_ignores_the_header(self):
+        headers = {"X-Forwarded-For": "9.9.9.9"}
+        self.assertEqual(client_ip(headers, "172.17.0.1", proxy_hops=0), "172.17.0.1")
+
+    def test_short_chain_uses_leftmost(self):
+        headers = {"X-Forwarded-For": "9.9.9.9"}
+        self.assertEqual(client_ip(headers, "172.17.0.1", proxy_hops=2), "9.9.9.9")
 
     def test_falls_back_to_peer(self):
         self.assertEqual(client_ip({}, "172.17.0.1"), "172.17.0.1")
