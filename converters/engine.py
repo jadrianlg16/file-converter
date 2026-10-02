@@ -31,7 +31,8 @@ def require(binary: str) -> str:
     return path
 
 
-def run(cmd, timeout: int = 300, cwd: str | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
+def run(cmd: list[str], timeout: int = 300, cwd: str | None = None,
+        env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """Run ``cmd`` (a list), capturing output. Raise ConversionError on failure."""
     try:
         proc = subprocess.run(

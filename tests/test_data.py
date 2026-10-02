@@ -6,13 +6,14 @@ needed.
 """
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from converters import data, get_converter  # noqa: E402
-from converters.engine import ConversionError  # noqa: E402
+from converters import data, get_converter
+from converters.engine import ConversionError
 
 # Skip the whole module if pandas isn't available locally.
 pd = pytest.importorskip("pandas")
@@ -131,7 +132,7 @@ def test_yaml_roundtrip(tmp_path):
     # YAML output should be a list of mappings, not a JSON blob string.
     import yaml
 
-    with open(y, "r", encoding="utf-8") as fh:
+    with open(y, encoding="utf-8") as fh:
         loaded = yaml.safe_load(fh)
     assert isinstance(loaded, list) and isinstance(loaded[0], dict)
 
@@ -145,7 +146,7 @@ def test_export_html(tmp_path):
     _, csv_path = _write_csv(str(tmp_path))
     out = os.path.join(str(tmp_path), "out.html")
     data.export_table(csv_path, out)
-    with open(out, "r", encoding="utf-8") as fh:
+    with open(out, encoding="utf-8") as fh:
         html = fh.read()
     assert "<table" in html
     assert "alice" in html
@@ -158,7 +159,7 @@ def test_export_md(tmp_path):
     _, csv_path = _write_csv(str(tmp_path))
     out = os.path.join(str(tmp_path), "out.md")
     data.export_table(csv_path, out)
-    with open(out, "r", encoding="utf-8") as fh:
+    with open(out, encoding="utf-8") as fh:
         md = fh.read()
     assert "|" in md
     assert "name" in md
@@ -194,7 +195,7 @@ def test_export_html_is_a_complete_utf8_document(tmp_path):
         fh.write("name\nJosé\n")
     out = os.path.join(str(tmp_path), "out.html")
     data.export_table(p, out)
-    html = open(out, encoding="utf-8").read()
+    html = Path(out).read_text(encoding="utf-8")
     assert html.startswith("<!DOCTYPE html>")
     assert '<meta charset="utf-8">' in html
     assert "José" in html
@@ -224,7 +225,7 @@ def test_windows_1252_delimited_input_is_decoded(tmp_path, ext, sep):
         fh.write(f"Año{sep}Señor\n2024{sep}Peña €\n".encode("cp1252"))
     out = os.path.join(str(tmp_path), "out.json")
     data.convert_tabular(p, out)
-    assert json.load(open(out, encoding="utf-8")) == [{"Año": 2024, "Señor": "Peña €"}]
+    assert json.loads(Path(out).read_text(encoding="utf-8")) == [{"Año": 2024, "Señor": "Peña €"}]
 
 
 def test_utf8_bom_csv_header_is_clean(tmp_path):
@@ -235,4 +236,4 @@ def test_utf8_bom_csv_header_is_clean(tmp_path):
         fh.write(b"\xef\xbb\xbfid,name\n1,Ana\n")
     out = os.path.join(str(tmp_path), "out.json")
     data.convert_tabular(p, out)
-    assert json.load(open(out, encoding="utf-8")) == [{"id": 1, "name": "Ana"}]
+    assert json.loads(Path(out).read_text(encoding="utf-8")) == [{"id": 1, "name": "Ana"}]

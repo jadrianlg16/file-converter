@@ -17,7 +17,7 @@ if not os.environ.get("DATA_DIR"):
     os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="fc-test-data-")
     atexit.register(shutil.rmtree, os.environ["DATA_DIR"], ignore_errors=True)
 
-from converters import engine  # noqa: E402
+from converters import engine
 
 
 def requires(binary: str):

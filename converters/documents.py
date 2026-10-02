@@ -47,13 +47,12 @@ import shutil
 import tempfile
 from collections.abc import Callable
 from html import escape
-from typing import Any, TypeVar
+from typing import Any
 
 from .engine import ConversionError, have, pandoc, soffice_convert
 from .registry import register, register_many
 
 log = logging.getLogger(__name__)
-T = TypeVar("T")
 
 TEXT_HUB = [
     "md", "markdown", "rst", "txt", "html", "htm",
@@ -259,8 +258,7 @@ def _preflight_pdf(in_path: str) -> int:
 
 def _iter_paragraphs(container):
     """Yield every paragraph in a Document or table cell, nested tables included."""
-    for para in container.paragraphs:
-        yield para
+    yield from container.paragraphs
     for table in container.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -351,13 +349,13 @@ def _safe_remove(path: str) -> None:
         os.remove(path)
 
 
-def _best_effort(what: str, fn: Callable[..., T], *args: Any) -> tuple[bool, T | None]:
+def _best_effort[T](what: str, fn: Callable[..., T], *args: Any) -> tuple[bool, T | None]:
     """Run one best-effort layout step: ``(True, result)``, or ``(False,
     None)`` after logging the traceback, so a repair bug degrades the output
     instead of failing the conversion."""
     try:
         return True, fn(*args)
-    except Exception:  # noqa: BLE001 - any repair bug must fall back, see docstring
+    except Exception:  # any repair bug must fall back, see docstring
         log.warning("PDF->DOCX %s failed; continuing without it", what, exc_info=True)
         return False, None
 
@@ -378,7 +376,7 @@ def _run_pdf2docx(in_path: str, out_path: str, **settings: Any) -> None:
             cv.convert(out_path, **settings)  # all pages
         finally:
             cv.close()
-    except Exception as e:  # noqa: BLE001 - pdf2docx raises many types; report them all
+    except Exception as e:  # pdf2docx raises many types; report them all
         raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise ConversionError("PDF->DOCX produced no output.")
@@ -454,7 +452,7 @@ def pdf_to_docx(in_path: str, out_path: str) -> None:
     spill onto extra docx pages (see the module docstring for why they
     otherwise do)."""
     try:
-        import pdf2docx  # noqa: F401
+        import pdf2docx  # noqa: F401 - only checks that it is installed
     except ImportError as e:  # pragma: no cover - depends on local env
         raise ConversionError(
             "pdf2docx is required for PDF->DOCX but is not installed."

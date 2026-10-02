@@ -7,20 +7,20 @@ Render-dependent assertions need LibreOffice and skip without it.
 """
 import os
 import sys
+from itertools import pairwise
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import requires  # noqa: E402
-
-from converters import documents  # noqa: E402
+from conftest import requires
+from converters import documents
 
 fitz = pytest.importorskip("fitz")
 pytest.importorskip("pdf2docx")
 docx = pytest.importorskip("docx")
 
-import pdf_fixtures  # noqa: E402
+import pdf_fixtures  # noqa: E402 - after the importorskip checks
 
 NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -199,8 +199,7 @@ def test_lattice_table_real_widths(tmp_path):
     assert len(t.columns) == 3 and len(t.rows) == 3
     widths = [int(g.get(f"{NS}w"))
               for g in t._tbl.tblGrid.findall(f"{NS}gridCol")]
-    real = [(b - a) * 20 for a, b in zip(pdf_fixtures.LATTICE_COLS,
-                                         pdf_fixtures.LATTICE_COLS[1:])]
-    for got, want in zip(widths, real):
+    real = [(b - a) * 20 for a, b in pairwise(pdf_fixtures.LATTICE_COLS)]
+    for got, want in zip(widths, real, strict=True):
         assert abs(got - want) <= 200, (widths, real)
     assert t.rows[1].cells[0].text.strip() == "Cemento gris 50kg"

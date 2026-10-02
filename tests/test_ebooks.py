@@ -6,15 +6,14 @@ SKIP when it's missing. The registry-wiring test runs everywhere.
 """
 import os
 import sys
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import requires  # noqa: E402
-from converters import ebooks, get_converter  # noqa: E402
+from conftest import requires
+from converters import ebooks, get_converter
 
 # A minimal but valid EPUB 2.0 (zip with mimetype, container, content, nav).
-import zipfile  # noqa: E402
-
 _CONTENT_OPF = """<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">

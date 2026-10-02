@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 pytest.importorskip("flask")
 pytest.importorskip("pandas")
 
-import web_app  # noqa: E402
+import web_app
 
 
 @pytest.fixture
@@ -103,7 +103,7 @@ def test_bad_requests_are_json_400s(client, name, target):
 
 
 @pytest.mark.parametrize("upload,expected", [
-    ("Señor López – contrato.csv", "Señor López – contrato.json"),
+    ("Señor López – contrato.csv", "Señor López – contrato.json"),  # noqa: RUF001 - en dash on purpose
     ("Año 2026.csv", "Año 2026.json"),   # secure_filename made this "Ano_2026"
     ("реестр.csv", "реестр.json"),       # ...and this "converted"
     ("plain name.csv", "plain name.json"),

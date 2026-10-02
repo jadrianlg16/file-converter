@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from converters import FORMATS, get_converter, matrix, sources, targets_for  # noqa: E402
+from converters import FORMATS, get_converter, matrix, sources, targets_for
 
 
 def test_matrix_is_populated():
@@ -51,4 +51,4 @@ def test_health_and_formats_endpoints():
     client = flask_app.test_client()
     assert client.get("/health").status_code == 200
     body = client.get("/api/formats").get_json()
-    assert "formats" in body and body["formats"]
+    assert body.get("formats")

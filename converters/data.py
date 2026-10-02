@@ -111,7 +111,7 @@ def _read_df(in_path: str):
         # utf-8-sig: Notepad and PowerShell 5.1 save JSON/YAML with a BOM,
         # which json.load() otherwise rejects.
         try:
-            with open(in_path, "r", encoding="utf-8-sig") as fh:
+            with open(in_path, encoding="utf-8-sig") as fh:
                 obj = json.load(fh)
         except ValueError as e:
             raise ConversionError(f"Invalid JSON input: {e}") from e
@@ -120,7 +120,7 @@ def _read_df(in_path: str):
         import yaml
 
         try:
-            with open(in_path, "r", encoding="utf-8-sig") as fh:
+            with open(in_path, encoding="utf-8-sig") as fh:
                 obj = yaml.safe_load(fh)
         except yaml.YAMLError as e:
             raise ConversionError(f"Invalid YAML input: {e}") from e
@@ -150,7 +150,7 @@ def convert_tabular(in_path: str, out_path: str) -> None:
         raise
     except ImportError as e:
         raise ConversionError(f"Missing data dependency: {e}") from e
-    except Exception as e:  # noqa: BLE001 - surface a clean message to the UI
+    except Exception as e:  # the parsers raise many types; report any as a bad file
         raise ConversionError(f"Failed to read {_ext(in_path)} input: {e}") from e
 
     dst = _ext(out_path)
@@ -183,7 +183,7 @@ def convert_tabular(in_path: str, out_path: str) -> None:
         raise
     except ImportError as e:
         raise ConversionError(f"Missing data dependency: {e}") from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # the writers raise many types; report any as a failure
         raise ConversionError(f"Failed to write {dst} output: {e}") from e
 
 
@@ -197,7 +197,7 @@ def export_table(in_path: str, out_path: str) -> None:
         raise
     except ImportError as e:
         raise ConversionError(f"Missing data dependency: {e}") from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # the parsers raise many types; report any as a bad file
         raise ConversionError(f"Failed to read {_ext(in_path)} input: {e}") from e
 
     dst = _ext(out_path)
@@ -225,7 +225,7 @@ def export_table(in_path: str, out_path: str) -> None:
         raise ConversionError(
             f"Missing data dependency (markdown export needs 'tabulate'): {e}"
         ) from e
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # the writers raise many types; report any as a failure
         raise ConversionError(f"Failed to write {dst} output: {e}") from e
 
 

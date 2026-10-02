@@ -37,10 +37,10 @@ def _line_markers(first: str, others: list[str], page_nums: list[int],
     markers, has_page = [], False
     for k, tok in enumerate(tokens):
         values = [int(t[k].group()) for t in all_tokens]
-        if all(v == p + 1 for v, p in zip(values, page_nums, strict=True)):
-            if len(set(values)) > 1:      # genuinely varying page number
-                markers.append((tok.start(), tok.end(), "PAGE"))
-                has_page = True
+        tracks_page = all(v == p + 1 for v, p in zip(values, page_nums, strict=True))
+        if tracks_page and len(set(values)) > 1:  # genuinely varying page number
+            markers.append((tok.start(), tok.end(), "PAGE"))
+            has_page = True
     if has_page:
         for k, tok in enumerate(tokens):
             values = [int(t[k].group()) for t in all_tokens]
@@ -242,7 +242,7 @@ def _find_band_images(doc: fitz.Document, H: float, threshold: int,
                 out.append({"occurrences": entry["occurrences"],
                             "data": pix["image"], "ext": pix["ext"],
                             "bbox": tuple(entry["rect"])})
-    except Exception:  # noqa: BLE001 - MuPDF raises several types on broken images
+    except Exception:  # MuPDF raises several types on broken images
         log.warning("Could not read the %s images; logos stay in the body",
                     zone, exc_info=True)
         return []

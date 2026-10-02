@@ -11,6 +11,7 @@ Source format is auto-detected from the uploaded filename's extension.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import uuid
@@ -110,7 +111,7 @@ def convert():
         error = (f".{src} → .{target} is not implemented yet.", 501)
     except ConversionError as e:
         error = (str(e), 422)
-    except Exception:  # noqa: BLE001 - a handler bug must still answer in JSON
+    except Exception:  # a handler bug must still answer in JSON
         # The exception text can carry server paths and library internals;
         # it goes to the log, and the client gets a generic message.
         flask_app.logger.exception("Unexpected failure converting .%s -> .%s", src, target)
@@ -163,16 +164,14 @@ def index():
     # be started from this directory.
     tpl = os.path.join(flask_app.root_path, flask_app.template_folder, "index.html")
     if os.path.exists(tpl):
-        with open(tpl, "r", encoding="utf-8") as fh:
+        with open(tpl, encoding="utf-8") as fh:
             return fh.read()
     return _FALLBACK_PAGE
 
 
 def _safe_unlink(path: str) -> None:
-    try:
+    with contextlib.suppress(OSError):
         os.remove(path)
-    except OSError:
-        pass
 
 
 _FALLBACK_PAGE = """<!doctype html><meta charset=utf-8>

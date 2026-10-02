@@ -11,8 +11,8 @@ A handler is any callable ``fn(in_path: str, out_path: str) -> None`` that reads
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Set, Tuple
 
 Converter = Callable[[str, str], None]
 
@@ -29,7 +29,7 @@ CATEGORIES = ["document", "image", "data", "ebook", "audio"]
 # Single source of truth. Aliases (jpeg/jpg, yml/yaml, htm/html, markdown/md,
 # tif/tiff, latex/tex) are all listed so the UI can accept whatever the user
 # uploads; converter modules decide which ones they wire up.
-_RAW_FORMATS: List[Tuple[str, str, str]] = [
+_RAW_FORMATS: list[tuple[str, str, str]] = [
     # --- documents ---
     ("md", "Markdown", "document"),
     ("markdown", "Markdown", "document"),
@@ -75,10 +75,10 @@ _RAW_FORMATS: List[Tuple[str, str, str]] = [
     ("aac", "AAC Audio", "audio"),
 ]
 
-FORMATS: Dict[str, Format] = {ext: Format(ext, name, cat) for ext, name, cat in _RAW_FORMATS}
+FORMATS: dict[str, Format] = {ext: Format(ext, name, cat) for ext, name, cat in _RAW_FORMATS}
 
 # (src, dst) -> handler
-_CONVERTERS: Dict[Tuple[str, str], Converter] = {}
+_CONVERTERS: dict[tuple[str, str], Converter] = {}
 
 
 class UnknownFormat(KeyError):
@@ -114,22 +114,22 @@ def get_converter(src: str, dst: str) -> Converter | None:
         return None
 
 
-def targets_for(src: str) -> List[str]:
+def targets_for(src: str) -> list[str]:
     src = _check(src)
     return sorted({dst for (s, dst) in _CONVERTERS if s == src})
 
 
-def sources() -> Set[str]:
+def sources() -> set[str]:
     return {s for (s, _) in _CONVERTERS}
 
 
-def matrix() -> Dict[str, dict]:
+def matrix() -> dict[str, dict]:
     """Shape consumed by the UI's GET /api/formats.
 
     {ext: {"name", "category", "targets": [{"ext","name","category"}, ...]}}
     Only formats that can actually be *converted from* are included.
     """
-    out: Dict[str, dict] = {}
+    out: dict[str, dict] = {}
     for src in sorted(sources()):
         tgts = targets_for(src)
         if not tgts:
@@ -146,8 +146,8 @@ def matrix() -> Dict[str, dict]:
     return out
 
 
-def categories() -> Dict[str, List[str]]:
-    grouped: Dict[str, List[str]] = {c: [] for c in CATEGORIES}
+def categories() -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {c: [] for c in CATEGORIES}
     for ext, f in FORMATS.items():
         grouped[f.category].append(ext)
     return grouped

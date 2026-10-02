@@ -216,8 +216,9 @@ def make_lattice_table(path: str) -> str:
     data = [("Articulo", "Unidades", "Importe"),
             ("Cemento gris 50kg", "40", "7,600.00"),
             ("Varilla 3/8 (pza)", "120", "18,240.00")]
-    for r, y in zip(data, rows_y):
-        for text, x in zip(r, LATTICE_COLS):
+    # rows_y and LATTICE_COLS hold the grid lines, one more than the cells
+    for r, y in zip(data, rows_y, strict=False):
+        for text, x in zip(r, LATTICE_COLS, strict=False):
             page.insert_text((x + 6, y + 16), text, fontsize=10)
     page.insert_text((40, 220), "Texto posterior a la tabla.", fontsize=10)
     doc.save(path)

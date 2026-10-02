@@ -4,21 +4,21 @@ Independent of the web service (web_app.py) and its converters package.
 Needs: markdown, python-docx, beautifulsoup4 (see requirements.txt).
 Run: python app.py
 """
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import os
 import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
 
 def convert_md_to_docx(input_path, output_path):
     import markdown
-    from docx import Document
-    from docx.shared import Pt, Inches, RGBColor
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
     from bs4 import BeautifulSoup, NavigableString
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Inches, Pt, RGBColor
 
-    with open(input_path, "r", encoding="utf-8") as f:
+    with open(input_path, encoding="utf-8") as f:
         md_content = f.read()
 
     html = markdown.markdown(
@@ -200,7 +200,7 @@ class App(tk.Tk):
                 self.after(
                     0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out}")
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - every failure goes to the dialog
                 # Bind the message now: Python unbinds `e` when this block
                 # exits, before Tk gets around to running the callbacks.
                 msg = str(e)

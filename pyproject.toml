@@ -1,0 +1,23 @@
+# Tool configuration only: the app runs from a checkout or the Docker image
+# and is not packaged.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = [".", "tests"]  # tests/ helpers (conftest, pdf_fixtures) are first-party
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # import order
+    "B",       # bugbear
+    "UP",      # pyupgrade
+    "SIM",     # simplifications
+    "C4",      # comprehensions
+    "BLE",     # blind except: every broad catch states why it is broad
+    "RUF",     # ruff-specific
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

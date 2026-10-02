@@ -13,8 +13,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import requires  # noqa: E402
-from converters import audio, images  # noqa: E402
+from conftest import requires
+from converters import audio, images
 
 
 def _has_module(name: str) -> bool:

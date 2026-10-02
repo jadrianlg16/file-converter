@@ -127,7 +127,7 @@ def _page_drawings(page: fitz.Page, pno: int) -> tuple[list, list, list]:
     hlines, vlines, fills = [], [], []
     try:
         drawings = page.get_drawings()
-    except Exception:  # noqa: BLE001 - MuPDF raises several types on bad content streams
+    except Exception:  # MuPDF raises several types on bad content streams
         log.warning("Could not read the drawings on page %d; rules, borders "
                     "and banner fills there are ignored", pno + 1, exc_info=True)
         return hlines, vlines, fills

@@ -18,10 +18,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from conftest import requires  # noqa: E402
-
-from converters import documents, get_converter  # noqa: E402
-from converters.engine import ConversionError  # noqa: E402
+from conftest import requires
+from converters import documents, get_converter
+from converters.engine import ConversionError
 
 MD_SAMPLE = """# Title
 
@@ -109,7 +108,7 @@ def test_md_to_html_preserves_structure(tmp_path):
     out = str(tmp_path / "out.html")
     documents.text_to_text(src, out)
     assert _nonempty(out)
-    html = open(out, encoding="utf-8").read().lower()
+    html = Path(out).read_text(encoding="utf-8").lower()
     assert "<h1" in html and "<h2" in html
     assert "<strong>" in html and "<em>" in html
     # pandoc 3.x emits attributes on list tags (e.g. <ol type="1">).
@@ -127,7 +126,7 @@ def test_md_html_md_roundtrip(tmp_path):
     documents.text_to_text(src, mid)
     documents.text_to_text(mid, back)
     assert _nonempty(back)
-    text = open(back, encoding="utf-8").read()
+    text = Path(back).read_text(encoding="utf-8")
     assert "Title" in text
     assert "**bold**" in text or "bold" in text
     assert "item one" in text
@@ -139,7 +138,7 @@ def test_md_to_rst(tmp_path):
     out = str(tmp_path / "out.rst")
     documents.text_to_text(src, out)
     assert _nonempty(out)
-    assert "Title" in open(out, encoding="utf-8").read()
+    assert "Title" in Path(out).read_text(encoding="utf-8")
 
 
 @requires("pandoc")
@@ -149,7 +148,7 @@ def test_md_to_docx_binary_output(tmp_path):
     documents.text_to_text(src, out)
     assert _nonempty(out)
     # docx is a zip; first bytes are "PK".
-    assert open(out, "rb").read(2) == b"PK"
+    assert Path(out).read_bytes()[:2] == b"PK"
 
 
 @requires("pandoc")
@@ -158,7 +157,7 @@ def test_txt_input_read_as_text(tmp_path):
     out = str(tmp_path / "out.html")
     documents.text_to_text(src, out)
     assert _nonempty(out)
-    assert "plain line" in open(out, encoding="utf-8").read()
+    assert "plain line" in Path(out).read_text(encoding="utf-8")
 
 
 @requires("pandoc")
@@ -168,7 +167,7 @@ def test_empty_input_produces_valid_output(tmp_path):
     documents.text_to_text(src, out)
     # Empty doc still yields a standalone HTML skeleton.
     assert _nonempty(out)
-    assert "<html" in open(out, encoding="utf-8").read().lower()
+    assert "<html" in Path(out).read_text(encoding="utf-8").lower()
 
 
 @requires("pandoc")
@@ -176,7 +175,7 @@ def test_utf8_is_preserved(tmp_path):
     src = _write(str(tmp_path / "u.md"), "# Café — naïve résumé ☕\n")
     out = str(tmp_path / "out.html")
     documents.text_to_text(src, out)
-    assert "Café" in open(out, encoding="utf-8").read()
+    assert "Café" in Path(out).read_text(encoding="utf-8")
 
 
 # --- To PDF -----------------------------------------------------------------
@@ -189,7 +188,7 @@ def test_md_to_pdf_pandoc(tmp_path):
     out = str(tmp_path / "out.pdf")
     documents.text_to_pdf(src, out)
     assert _nonempty(out)
-    assert open(out, "rb").read(5) == b"%PDF-"
+    assert Path(out).read_bytes()[:5] == b"%PDF-"
 
 
 @requires("soffice")
@@ -204,7 +203,7 @@ def test_docx_to_pdf_libreoffice(tmp_path):
     out = str(tmp_path / "out.pdf")
     documents.text_to_pdf(docx, out)
     assert _nonempty(out)
-    assert open(out, "rb").read(5) == b"%PDF-"
+    assert Path(out).read_bytes()[:5] == b"%PDF-"
 
 
 # --- Untrusted input: pandoc must not read server files --------------------
@@ -263,7 +262,7 @@ def test_include_directives_cannot_read_server_files(tmp_path, name, body):
         documents.text_to_text(src, out)
     except ConversionError:
         return  # refusing the document is as good as leaving the file out
-    assert SECRET.decode() not in open(out, encoding="utf-8").read()
+    assert SECRET.decode() not in Path(out).read_text(encoding="utf-8")
 
 
 @requires("pandoc")
@@ -300,7 +299,7 @@ def test_pdf_to_txt(tmp_path):
     out = str(tmp_path / "out.txt")
     documents.pdf_to_txt(pdf, out)
     assert _nonempty(out)
-    assert "Hello PDF world." in open(out, encoding="utf-8").read()
+    assert "Hello PDF world." in Path(out).read_text(encoding="utf-8")
 
 
 def test_pdf_to_md(tmp_path):
@@ -308,7 +307,7 @@ def test_pdf_to_md(tmp_path):
     out = str(tmp_path / "out.md")
     documents.pdf_to_md(pdf, out)
     assert _nonempty(out)
-    assert "markdown body text" in open(out, encoding="utf-8").read()
+    assert "markdown body text" in Path(out).read_text(encoding="utf-8")
 
 
 def test_pdf_to_html(tmp_path):
@@ -316,7 +315,7 @@ def test_pdf_to_html(tmp_path):
     out = str(tmp_path / "out.html")
     documents.pdf_to_html(pdf, out)
     assert _nonempty(out)
-    html = open(out, encoding="utf-8").read().lower()
+    html = Path(out).read_text(encoding="utf-8").lower()
     assert "<html" in html and "<body" in html
     assert "html export" in html
 
@@ -327,7 +326,7 @@ def test_pdf_to_docx(tmp_path):
     out = str(tmp_path / "out.docx")
     documents.pdf_to_docx(pdf, out)
     assert _nonempty(out)
-    assert open(out, "rb").read(2) == b"PK"
+    assert Path(out).read_bytes()[:2] == b"PK"
 
 
 def _make_dense_pdf(path: str, pages: int = 2) -> str:
@@ -427,7 +426,7 @@ def test_pdf_to_html_title_comes_from_metadata_and_is_escaped(tmp_path):
     doc.close()
     out = str(tmp_path / "out.html")
     documents.pdf_to_html(pdf, out)
-    html = open(out, encoding="utf-8").read()
+    html = Path(out).read_text(encoding="utf-8")
     assert "<title>Q3 &lt;draft&gt; &amp; notes</title>" in html
 
 
@@ -442,7 +441,7 @@ def test_pdf_to_md_collapses_blank_runs(tmp_path):
     doc.close()
     out = str(tmp_path / "out.md")
     documents.pdf_to_md(pdf, out)
-    assert open(out, encoding="utf-8").read() == "Page one\n\nPage three\n"
+    assert Path(out).read_text(encoding="utf-8") == "Page one\n\nPage three\n"
 
 
 def test_strangled_table_check_failure_is_not_fatal(monkeypatch, caplog):

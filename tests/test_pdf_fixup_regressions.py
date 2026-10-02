@@ -6,20 +6,22 @@ pdf_fixtures.py does) and pins one repaired behavior. None needs LibreOffice.
 import io
 import os
 import sys
+from itertools import pairwise
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from converters import documents  # noqa: E402
-from converters import pdf_docx_fixup as fx  # noqa: E402
+from converters import documents
+from converters import pdf_docx_fixup as fx
 
 fitz = pytest.importorskip("fitz")
 docx = pytest.importorskip("docx")
 pytest.importorskip("pdf2docx")
 
-import pdf_fixtures  # noqa: E402
-from docx.shared import Pt  # noqa: E402
+from docx.shared import Pt  # noqa: E402 - after the importorskip checks
+
+import pdf_fixtures  # noqa: E402 - after the importorskip checks
 
 NS = fx.W_NS
 W, H = 595, 842
@@ -261,8 +263,8 @@ def test_narrow_lattice_column_keeps_real_widths(tmp_path):
     t = docx.Document(out).tables[0]
     widths = [int(g.get(f"{NS}w"))
               for g in t._tbl.tblGrid.findall(f"{NS}gridCol")]
-    real = [(b - a) * 20 for a, b in zip(cols, cols[1:])]
-    for got, want in zip(widths, real):
+    real = [(b - a) * 20 for a, b in pairwise(cols)]
+    for got, want in zip(widths, real, strict=True):
         assert abs(got - want) <= 200, (widths, real)
 
 

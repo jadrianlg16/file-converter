@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from demo_guard import DemoGuard, client_ip  # noqa: E402
+from demo_guard import DemoGuard, client_ip
 
 T0 = 1_800_000_000.0  # fixed base timestamp
 
