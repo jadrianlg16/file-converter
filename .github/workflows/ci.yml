@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Lint and tests (no engines)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.web.txt
+            requirements.dev.txt
+            constraints.txt
+      - name: Install pinned dependencies
+        run: pip install -r requirements.dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Check formatting
+        run: ruff format --check .
+      # Tests that need pandoc, LibreOffice, Calibre or ffmpeg skip here and
+      # print why; the docker job runs all of them.
+      - name: Tests
+        run: pytest -rs
+
+  docker:
+    name: Docker image and full suite
+    # Building the image installs every engine (about 2.6 GB), so this job
+    # runs on pushes to main and on demand, not on every pull request.
+    if: github.event_name != 'pull_request'
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t file-converter .
+      - name: Full suite inside the image (every engine present, no skips)
+        run: |
+          docker run --rm -v "$PWD/tests:/app/tests:ro" file-converter sh -c \
+            "pip install -q --user pytest==9.1.1 && python -m pytest -q -rs -p no:cacheprovider tests" \
+            | tee pytest.log
+          if grep -q " skipped" pytest.log; then echo "::error::tests were skipped in the image"; exit 1; fi
+      - name: Smoke-test the server
+        run: |
+          docker run -d --name fc -p 127.0.0.1:5007:5007 file-converter
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:5007/health && break; sleep 1; done
+          printf 'a,b\n1,2\n' > smoke.csv
+          curl -fsS -F file=@smoke.csv -F target=json http://127.0.0.1:5007/convert | grep -q '"a": 1'
+      - name: Server log
+        if: always()
+        run: docker logs fc || true
