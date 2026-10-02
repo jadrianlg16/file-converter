@@ -40,6 +40,23 @@ guard = DemoGuard(os.path.join(WORK, "demo-guard.sqlite"))
 _upload_mb = guard.max_upload_mb if guard.enabled else int(os.environ.get("MAX_UPLOAD_MB", "200"))
 flask_app.config["MAX_CONTENT_LENGTH"] = _upload_mb * 1024 * 1024
 
+# The page loads only its own CSS/JS and a data: favicon, so the policy can be
+# tight: no inline scripts, no framing, same-origin only. style-src inherits
+# 'self' from default-src; the UI sets styles through the CSSOM (el.style.x),
+# which CSP permits, so no 'unsafe-inline' is needed.
+_CSP = (
+    "default-src 'self'; img-src 'self' data:; object-src 'none'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+
+
+@flask_app.after_request
+def _security_headers(resp):  # Flask after_request hook
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    return resp
+
 
 def _ext(filename: str) -> str:
     return os.path.splitext(filename)[1].lower().lstrip(".")
@@ -203,5 +220,11 @@ _FALLBACK_PAGE = """<!doctype html><meta charset=utf-8>
 
 
 if __name__ == "__main__":
-    # Dev server only; the Docker image runs gunicorn on 5007.
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5007")))
+    # Dev server only; the Docker image runs gunicorn (bound to 0.0.0.0:5007
+    # inside the container). This binds to localhost unless HOST says otherwise,
+    # so `python web_app.py` doesn't expose the unhardened app on every
+    # interface. Set HOST=0.0.0.0 to serve beyond the local machine on purpose.
+    flask_app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5007")),
+    )
