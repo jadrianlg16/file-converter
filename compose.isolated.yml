@@ -1,0 +1,33 @@
+# Runs the converter with no internet access. Uploads are untrusted documents,
+# and some engines follow links inside them (in testing, LibreOffice fetched an
+# image an OpenDocument file linked to), so the converter only joins an
+# internal network.
+# A small nginx proxy joins that network and the default one, and is the only
+# thing published to the host.
+#
+#   docker compose -f compose.isolated.yml up --build
+#   open http://127.0.0.1:5007   (set FC_PORT to use another host port)
+services:
+  converter:
+    build: .
+    networks: [isolated]
+    environment:
+      DEMO_PROXY_HOPS: "1"  # nginx appends exactly one X-Forwarded-For entry
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:1.29-alpine
+    depends_on: [converter]
+    networks: [isolated, edge]
+    ports:
+      - "127.0.0.1:${FC_PORT:-5007}:80"  # FC_PORT picks another host port
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+networks:
+  isolated:
+    internal: true  # no route out: no DNS for outside names, no egress
+  edge: {}
