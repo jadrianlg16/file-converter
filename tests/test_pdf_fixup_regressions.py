@@ -266,7 +266,7 @@ def test_narrow_lattice_column_keeps_real_widths(tmp_path):
         assert abs(got - want) <= 200, (widths, real)
 
 
-# --- _body_pages: column sections don't add pages --------------------------
+# --- body_pages: column sections don't add pages --------------------------
 
 def test_body_pages_ignore_column_section_breaks(tmp_path):
     one = pdf_fixtures.make_official_letter(str(tmp_path / "carta.pdf"))
@@ -275,5 +275,5 @@ def test_body_pages_ignore_column_section_breaks(tmp_path):
         d2.insert_pdf(src)
         d2.insert_pdf(src)
         d2.save(two)
-    assert len(fx._body_pages(_pdf2docx(one, str(tmp_path / "1.docx")))) == 1
-    assert len(fx._body_pages(_pdf2docx(two, str(tmp_path / "2.docx")))) == 2
+    assert len(fx.body_pages(_pdf2docx(one, str(tmp_path / "1.docx")))) == 1
+    assert len(fx.body_pages(_pdf2docx(two, str(tmp_path / "2.docx")))) == 2
