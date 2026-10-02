@@ -149,10 +149,12 @@ def make_official_letter(path: str) -> str:
     y = 168.0
     for line in [
         "GARCIA LOPEZ JUAN ALBERTO",
-        "NSS: 12345678901",
-        "RFC: GALJ850101AB0",
-        "CURP: GALJ850101HNLRPN09",
-        "Credito: 2109876543",
+        # Obviously-fake placeholders in the standard generic format, so the
+        # fixture carries no value that could be mistaken for a real record.
+        "NSS: 00000000000",
+        "RFC: XAXX010101000",
+        "CURP: XEXX010101HNEXXXA4",
+        "Credito: 0000000000",
     ]:
         page.insert_text((100, y), line, fontsize=9)
         y += 12.5
@@ -167,7 +169,7 @@ def make_official_letter(path: str) -> str:
             ("MONTERREY, NUEVO LEON", False),
             ("a 15 de julio de 2025", False),
             ("Numero", False),
-            ("2109876543-XY-0098123456", True),
+            ("0000000000-XX-0000000000", True),
         ]
     ):
         fn = "hebo" if bold else "helv"

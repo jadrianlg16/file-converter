@@ -197,8 +197,8 @@ def test_official_letter_structure(tmp_path):
     joined = "\n".join(full)
     for needle in [
         "GARCIA LOPEZ JUAN ALBERTO",
-        "NSS: 12345678901",
-        "CURP: GALJ850101HNLRPN09",
+        "NSS: 00000000000",
+        "CURP: XEXX010101HNEXXXA4",
         "MONTERREY, NUEVO LEON",
         "P R E S E N T E",
         "A T E N T A M E N T E",
