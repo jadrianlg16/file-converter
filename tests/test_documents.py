@@ -445,7 +445,7 @@ def test_pdf_to_md_collapses_blank_runs(tmp_path):
     assert open(out, encoding="utf-8").read() == "Page one\n\nPage three\n"
 
 
-def test_strangled_table_check_failure_is_not_fatal(monkeypatch):
+def test_strangled_table_check_failure_is_not_fatal(monkeypatch, caplog):
     from converters import pdf_docx_fixup
 
     def boom(_doc):
@@ -453,3 +453,20 @@ def test_strangled_table_check_failure_is_not_fatal(monkeypatch):
 
     monkeypatch.setattr(pdf_docx_fixup, "has_strangled_tables", boom)
     assert documents._strangled(object()) is False
+    assert "strangled-table check failed" in caplog.text  # logged, not silent
+
+
+def test_failing_repair_step_is_logged_and_conversion_continues(tmp_path, monkeypatch,
+                                                               caplog):
+    pytest.importorskip("pdf2docx")
+    from converters import pdf_docx_fixup
+
+    def boom(*_args):
+        raise RuntimeError("repair bug")
+
+    monkeypatch.setattr(pdf_docx_fixup, "merge_row_paragraphs", boom)
+    pdf = _make_pdf(str(tmp_path / "in.pdf"), "Still converted.")
+    out = str(tmp_path / "out.docx")
+    documents.pdf_to_docx(pdf, out)
+    assert _nonempty(out)
+    assert "row merging failed" in caplog.text and "repair bug" in caplog.text

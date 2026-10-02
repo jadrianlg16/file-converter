@@ -39,14 +39,21 @@ this module still imports when those libs/binaries are absent locally.
 """
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from html import escape
+from typing import Any, TypeVar
 
 from .engine import ConversionError, have, pandoc, soffice_convert
 from .registry import register, register_many
+
+log = logging.getLogger(__name__)
+T = TypeVar("T")
 
 TEXT_HUB = [
     "md", "markdown", "rst", "txt", "html", "htm",
@@ -331,31 +338,38 @@ def _docx_rendered_pages(docx_path: str) -> int | None:
     try:
         rendered = soffice_convert(docx_path, tmpdir, "pdf")
         return _pdf_page_count(rendered)
-    except Exception:
+    except (ConversionError, RuntimeError, OSError):  # PyMuPDF errors are RuntimeErrors
+        log.warning("Could not render the DOCX to check its page count; "
+                    "keeping it uncompacted", exc_info=True)
         return None
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _safe_remove(path: str) -> None:
-    try:
+    with contextlib.suppress(OSError):
         os.remove(path)
-    except OSError:
-        pass
 
 
-def _strangled(doc) -> bool:
-    """``fixup.has_strangled_tables`` without letting an analysis bug abort
-    the whole conversion (like every other fixup step, it's best-effort)."""
+def _best_effort(what: str, fn: Callable[..., T], *args: Any) -> tuple[bool, T | None]:
+    """Run one best-effort layout step: ``(True, result)``, or ``(False,
+    None)`` after logging the traceback, so a repair bug degrades the output
+    instead of failing the conversion."""
+    try:
+        return True, fn(*args)
+    except Exception:  # noqa: BLE001 - any repair bug must fall back, see docstring
+        log.warning("PDF->DOCX %s failed; continuing without it", what, exc_info=True)
+        return False, None
+
+
+def _strangled(doc: Any) -> bool:
+    """``fixup.has_strangled_tables``, where an analysis bug counts as "no"."""
     from . import pdf_docx_fixup as fixup
 
-    try:
-        return fixup.has_strangled_tables(doc)
-    except Exception:
-        return False
+    return bool(_best_effort("strangled-table check", fixup.has_strangled_tables, doc)[1])
 
 
-def _run_pdf2docx(in_path: str, out_path: str, **settings) -> None:
+def _run_pdf2docx(in_path: str, out_path: str, **settings: Any) -> None:
     from pdf2docx import Converter
 
     try:
@@ -364,10 +378,28 @@ def _run_pdf2docx(in_path: str, out_path: str, **settings) -> None:
             cv.convert(out_path, **settings)  # all pages
         finally:
             cv.close()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - pdf2docx raises many types; report them all
         raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise ConversionError("PDF->DOCX produced no output.")
+
+
+def _convert_with_table_repair(src: str, base_path: str, layout: Any) -> Any:
+    """pdf2docx ``src`` into ``base_path`` and repair its table widths. When
+    the tables still come out strangled (invented layout tables beyond
+    repair), re-convert without stream tables; the rows are rebuilt with tab
+    stops later instead."""
+    from docx import Document
+
+    from . import pdf_docx_fixup as fixup
+
+    _run_pdf2docx(src, base_path)
+    doc = Document(base_path)
+    _best_effort("table width repair", fixup.fix_stream_table_widths, doc, layout)
+    if _strangled(doc):
+        _run_pdf2docx(src, base_path, parse_stream_table=False)
+        doc = Document(base_path)
+    return doc
 
 
 def _layout_fixed_docx(in_path: str, base_path: str) -> None:
@@ -377,67 +409,39 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
     come out strangled), tab-stop rows, list splitting and alignment fixes.
     Every repair is best-effort; on analysis failure this degrades to the
     plain pdf2docx output."""
-    from docx import Document
-
     from . import pdf_docx_fixup as fixup
 
-    try:
-        layout = fixup.analyze_pdf(in_path)
-    except Exception:
-        layout = None
+    layout = _best_effort("layout analysis", fixup.analyze_pdf, in_path)[1]
     if layout is None:
         _run_pdf2docx(in_path, base_path)
         return
 
     work_path = in_path
     redacted = base_path + ".redacted.pdf"
-    bands = layout.header or layout.footer
+    bands = bool(layout.header or layout.footer)
     if bands:
-        try:
-            fixup.redact_bands(in_path, redacted, layout)
+        if _best_effort("header/footer redaction", fixup.redact_bands,
+                        in_path, redacted, layout)[0]:
             work_path = redacted
-        except Exception:
+        else:
             layout.header = layout.footer = None
             bands = False
 
     try:
-        _run_pdf2docx(work_path, base_path)
-        doc = Document(base_path)
-        try:
-            fixup.fix_stream_table_widths(doc, layout)
-        except Exception:
-            pass
-        if _strangled(doc):
-            # invented layout tables beyond repair — re-convert without
-            # stream tables and rebuild the rows with tab stops instead
-            _run_pdf2docx(work_path, base_path,
-                          parse_stream_table=False)
-            doc = Document(base_path)
-        if bands:
-            # after a successful redaction this must succeed, or the band
-            # content would be lost: fall back to converting the intact PDF
-            try:
-                fixup.build_header_footer(doc, layout)
-            except Exception:
-                _run_pdf2docx(in_path, base_path)
-                doc = Document(base_path)
-                try:
-                    fixup.fix_stream_table_widths(doc, layout)
-                except Exception:
-                    pass
-                if _strangled(doc):
-                    _run_pdf2docx(in_path, base_path,
-                                  parse_stream_table=False)
-                    doc = Document(base_path)
-        for step in (lambda: fixup.flatten_column_sections(doc, layout),
-                     lambda: fixup.merge_row_paragraphs(doc, layout),
-                     lambda: fixup.split_list_breaks(doc),
-                     lambda: fixup.fix_justified_ragged(doc, layout),
-                     lambda: fixup.restore_banner_shading(doc, layout)):
-            try:
-                step()
-            except Exception:
-                pass
+        doc = _convert_with_table_repair(work_path, base_path, layout)
+        if bands and not _best_effort("header/footer rebuild",
+                                      fixup.build_header_footer, doc, layout)[0]:
+            # the bands were redacted from the converted PDF, so their content
+            # would be lost: convert the intact PDF instead
+            doc = _convert_with_table_repair(in_path, base_path, layout)
+        for what, step, args in (
+            ("column flattening", fixup.flatten_column_sections, (doc, layout)),
+            ("row merging", fixup.merge_row_paragraphs, (doc, layout)),
+            ("list splitting", fixup.split_list_breaks, (doc,)),
+            ("ragged-right alignment", fixup.fix_justified_ragged, (doc, layout)),
+            ("banner shading", fixup.restore_banner_shading, (doc, layout)),
+        ):
+            _best_effort(what, step, *args)
         doc.save(base_path)
     finally:
         _safe_remove(redacted)
