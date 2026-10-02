@@ -19,9 +19,13 @@ from __future__ import annotations
 
 import io
 import os
+from typing import TYPE_CHECKING
 
 from .engine import ConversionError
 from .registry import register_many
+
+if TYPE_CHECKING:  # Pillow is imported lazily, inside the handlers
+    from PIL import Image
 
 RASTER = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "tif"]
 
@@ -62,14 +66,16 @@ def _pil_format_for(out_path: str, what: str) -> tuple[str, str]:
     return target, pil_format
 
 
-def _load_first_frame(img):
+def _load_first_frame(img: Image.Image) -> Image.Image:
     """Return a single still frame for animated sources (GIF/WebP/TIFF)."""
     if getattr(img, "is_animated", False):
         img.seek(0)
     return img
 
 
-def _flatten_to_rgb(img, background=(255, 255, 255)):
+def _flatten_to_rgb(
+    img: Image.Image, background: tuple[int, int, int] = (255, 255, 255)
+) -> Image.Image:
     """Composite any alpha/palette transparency onto a solid background and
     return an RGB image, suitable for formats without an alpha channel."""
     from PIL import Image
@@ -84,7 +90,7 @@ def _flatten_to_rgb(img, background=(255, 255, 255)):
     return img
 
 
-def _normalise_for(target_ext: str, img):
+def _normalise_for(target_ext: str, img: Image.Image) -> Image.Image:
     """Apply EXIF orientation, pick the first frame, and coerce the colour mode
     so it can be saved as ``target_ext``."""
     from PIL import ImageOps

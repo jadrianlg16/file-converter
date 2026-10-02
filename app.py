@@ -11,7 +11,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 
-def convert_md_to_docx(input_path, output_path):
+def convert_md_to_docx(input_path: str, output_path: str) -> None:
+    """Render a Markdown file as a styled .docx (headings, lists, tables, code)."""
     import markdown
     from bs4 import BeautifulSoup, NavigableString
     from docx import Document
@@ -118,7 +119,9 @@ def convert_md_to_docx(input_path, output_path):
 
 
 class App(tk.Tk):
-    def __init__(self):
+    """The single-window desktop tool: pick a .md file, pick an output, convert."""
+
+    def __init__(self) -> None:
         super().__init__()
         self.title("MD → DOCX Converter")
         self.resizable(False, False)

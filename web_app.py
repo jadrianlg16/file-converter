@@ -17,7 +17,8 @@ import os
 import re
 import uuid
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, Response, jsonify, request, send_file
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from converters import FORMATS, get_converter, matrix
 from converters.engine import ConversionError
@@ -63,13 +64,14 @@ def _download_stem(filename: str) -> str:
 
 
 @flask_app.errorhandler(413)
-def too_large(_err):
-    # Werkzeug's default 413 is an HTML page; the UI expects JSON errors.
+def too_large(_err: RequestEntityTooLarge) -> tuple[Response, int]:
+    """JSON instead of Werkzeug's HTML 413 page, like every other error."""
     return jsonify({"error": f"File is too large — the limit is {_upload_mb} MB."}), 413
 
 
 @flask_app.get("/api/formats")
-def api_formats():
+def api_formats() -> Response:
+    """The conversion matrix, the upload cap and (in demo mode) its limits."""
     payload = {"formats": matrix(), "maxUploadMb": _upload_mb}
     demo = guard.public_info()
     if demo:
@@ -78,7 +80,12 @@ def api_formats():
 
 
 @flask_app.post("/convert")
-def convert():
+def convert() -> Response | tuple[Response, int]:
+    """Convert the uploaded ``file`` to ``target`` and send it back.
+
+    Errors are JSON ``{"error": ...}`` with a 4xx/5xx status. Both the upload
+    and the output are deleted once the response is done.
+    """
     f = request.files.get("file")
     target = (request.form.get("target") or "").lower().lstrip(".")
     if not f or not f.filename:
@@ -156,16 +163,19 @@ def _build_stamp() -> str:
 
 
 @flask_app.get("/health")
-def health():
+def health() -> dict[str, object]:
+    """Liveness probe with the number of source formats and the build stamp."""
     return {"status": "ok", "formats": len(matrix()), "build": _build_stamp()}
 
 
 @flask_app.get("/")
-def index():
-    # Serve templates/index.html as-is (no Jinja needed). The fallback page
-    # keeps the API usable if the template is missing from a build. Resolve
-    # against root_path: template_folder is relative, and the process may not
-    # be started from this directory.
+def index() -> str:
+    """The single-page UI, served as-is (no Jinja needed).
+
+    The fallback page keeps the API usable if the template is missing from a
+    build. The path is resolved against root_path because template_folder is
+    relative and the process may be started from another directory.
+    """
     tpl = os.path.join(flask_app.root_path, flask_app.template_folder, "index.html")
     if os.path.exists(tpl):
         with open(tpl, encoding="utf-8") as fh:

@@ -24,6 +24,7 @@ def have(binary: str) -> bool:
 
 
 def require(binary: str) -> str:
+    """Path of ``binary``, or a ConversionError naming the missing tool."""
     path = shutil.which(binary)
     if not path:
         raise ConversionError(f"Required tool '{binary}' is not installed in this image.")
@@ -144,6 +145,7 @@ def soffice_convert(
 
 
 def ffmpeg(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
+    """Run ffmpeg; the output extension picks the format, ``extra`` adds options."""
     require("ffmpeg")
     cmd = ["ffmpeg", "-y", "-i", in_path]
     if extra:
@@ -156,6 +158,7 @@ def ffmpeg(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
 
 
 def ebook_convert(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
+    """Run Calibre's ebook-convert; the extensions pick the formats."""
     require("ebook-convert")
     cmd = ["ebook-convert", in_path, out_path]
     if extra:

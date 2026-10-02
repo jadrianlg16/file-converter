@@ -12,7 +12,7 @@ A handler is any callable ``fn(in_path: str, out_path: str) -> None`` that reads
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 Converter = Callable[[str, str], None]
@@ -101,7 +101,7 @@ def register(src: str, dst: str, fn: Converter) -> None:
     _CONVERTERS[(src, dst)] = fn
 
 
-def register_many(srcs, dsts, fn: Converter) -> None:
+def register_many(srcs: Iterable[str], dsts: Iterable[str], fn: Converter) -> None:
     """Register the cartesian product srcs x dsts (skipping equal pairs)."""
     for s in srcs:
         for d in dsts:
@@ -109,6 +109,7 @@ def register_many(srcs, dsts, fn: Converter) -> None:
 
 
 def get_converter(src: str, dst: str) -> Converter | None:
+    """The handler for ``src`` -> ``dst``, or None (also for unknown formats)."""
     try:
         return _CONVERTERS.get((_check(src), _check(dst)))
     except UnknownFormat:
@@ -116,11 +117,13 @@ def get_converter(src: str, dst: str) -> Converter | None:
 
 
 def targets_for(src: str) -> list[str]:
+    """Sorted target extensions registered for ``src``."""
     src = _check(src)
     return sorted({dst for (s, dst) in _CONVERTERS if s == src})
 
 
 def sources() -> set[str]:
+    """Every extension at least one conversion starts from."""
     return {s for (s, _) in _CONVERTERS}
 
 
@@ -144,10 +147,3 @@ def matrix() -> dict[str, dict]:
             ],
         }
     return out
-
-
-def categories() -> dict[str, list[str]]:
-    grouped: dict[str, list[str]] = {c: [] for c in CATEGORIES}
-    for ext, f in FORMATS.items():
-        grouped[f.category].append(ext)
-    return grouped

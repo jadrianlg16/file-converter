@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import time
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 
@@ -44,7 +45,10 @@ class Verdict:
 
 
 class DemoGuard:
-    def __init__(self, db_path: str):
+    """Per-IP hourly limit, daily budget and blocked types, read from the
+    DEMO_* environment variables. Does nothing unless DEMO_MODE=1."""
+
+    def __init__(self, db_path: str) -> None:
         self.enabled = os.environ.get("DEMO_MODE", "") == "1"
         self.max_upload_mb = _env_int("DEMO_MAX_UPLOAD_MB", 10)
         self.rate_per_hour = _env_int("DEMO_RATE_PER_HOUR", 5)
@@ -137,7 +141,7 @@ class DemoGuard:
             )
 
 
-def client_ip(headers, remote_addr: str | None, proxy_hops: int = 1) -> str:
+def client_ip(headers: Mapping[str, str], remote_addr: str | None, proxy_hops: int = 1) -> str:
     """Real client IP when running behind ``proxy_hops`` reverse proxies.
 
     Each proxy *appends* the peer it saw to X-Forwarded-For, so only the last

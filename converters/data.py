@@ -20,9 +20,13 @@ pandas / openpyxl / xlrd / PyYAML are not installed locally.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING, Any
 
 from .engine import ConversionError
 from .registry import register_many
+
+if TYPE_CHECKING:  # pandas is imported lazily, inside the handlers
+    import pandas as pd
 
 DATA_IN = ["csv", "tsv", "json", "xlsx", "xls", "yaml", "yml"]
 DATA_OUT = ["csv", "tsv", "json", "xlsx", "yaml", "yml"]  # note: no .xls writer by default
@@ -37,7 +41,7 @@ def _ext(path: str) -> str:
     return os.path.splitext(path)[1].lower().lstrip(".")
 
 
-def _records_from_obj(obj):
+def _records_from_obj(obj: Any) -> tuple[Any, str | None]:
     """Normalise an arbitrary JSON/YAML object into a list of record dicts.
 
     Handles:
@@ -71,7 +75,8 @@ def _records_from_obj(obj):
 _TEXT_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
 
 
-def _read_delimited(in_path: str, sep: str):
+def _read_delimited(in_path: str, sep: str) -> pd.DataFrame:
+    """Read csv/tsv, trying each of _TEXT_ENCODINGS in turn."""
     import pandas as pd
 
     for encoding in _TEXT_ENCODINGS[:-1]:
@@ -82,7 +87,7 @@ def _read_delimited(in_path: str, sep: str):
     return pd.read_csv(in_path, sep=sep, encoding=_TEXT_ENCODINGS[-1])
 
 
-def _frame_from_obj(obj):
+def _frame_from_obj(obj: Any) -> pd.DataFrame:
     """Parsed JSON/YAML object -> DataFrame (see ``_records_from_obj``)."""
     import pandas as pd
 
@@ -92,7 +97,7 @@ def _frame_from_obj(obj):
     return pd.DataFrame.from_records(records)
 
 
-def _read_df(in_path: str):
+def _read_df(in_path: str) -> pd.DataFrame:
     """Read ``in_path`` into a pandas DataFrame based on its extension."""
     import pandas as pd
 
@@ -131,7 +136,7 @@ def _read_df(in_path: str):
     raise ConversionError(f"Unsupported data source format: {src!r}")
 
 
-def _df_to_native(df):
+def _df_to_native(df: pd.DataFrame) -> list[dict[str, Any]]:
     """DataFrame -> list-of-records using JSON-friendly native types.
 
     Round-trips through pandas' JSON serializer so NaN/NaT, numpy ints/floats

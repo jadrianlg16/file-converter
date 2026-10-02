@@ -46,12 +46,19 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from html import escape
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .engine import ConversionError, have, pandoc, soffice_convert
 from .registry import register, register_many
+
+if TYPE_CHECKING:  # heavy libraries are imported lazily, inside the handlers
+    from types import ModuleType
+
+    import fitz
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
 log = logging.getLogger(__name__)
 
@@ -145,7 +152,7 @@ def text_to_pdf(in_path: str, out_path: str) -> None:
 # --- PDF -> editable formats (best effort) ---------------------------------
 
 
-def _fitz():
+def _fitz() -> ModuleType:
     """Import PyMuPDF lazily, with a clear error when it isn't installed."""
     try:
         import fitz  # PyMuPDF
@@ -157,7 +164,7 @@ def _fitz():
     return fitz
 
 
-def _open_pdf(in_path: str):
+def _open_pdf(in_path: str) -> fitz.Document:
     """Open a PDF for reading (use as a context manager).
 
     Raises ConversionError for unreadable files and for password-protected
@@ -267,7 +274,7 @@ def _preflight_pdf(in_path: str) -> int:
         return pages
 
 
-def _iter_paragraphs(container):
+def _iter_paragraphs(container: Any) -> Iterator[Paragraph]:
     """Yield every paragraph in a Document or table cell, nested tables included."""
     yield from container.paragraphs
     for table in container.tables:
@@ -276,7 +283,8 @@ def _iter_paragraphs(container):
                 yield from _iter_paragraphs(cell)
 
 
-def _iter_tables(container):
+def _iter_tables(container: Any) -> Iterator[Table]:
+    """Yield every table in a Document or table cell, nested tables included."""
     for table in container.tables:
         yield table
         for row in table.rows:

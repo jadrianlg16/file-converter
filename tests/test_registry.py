@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from converters import FORMATS, get_converter, matrix, sources, targets_for
+from converters.registry import CATEGORIES
 
 
 def test_matrix_is_populated():
@@ -17,6 +18,11 @@ def test_matrix_is_populated():
         assert info["targets"], f"{src} has no targets"
         for t in info["targets"]:
             assert t["ext"] in FORMATS
+
+
+def test_every_format_has_a_known_category():
+    # The UI groups target chips by these categories.
+    assert {f.category for f in FORMATS.values()} == set(CATEGORIES)
 
 
 def test_all_registered_formats_are_known():
