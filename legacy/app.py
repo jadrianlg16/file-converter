@@ -1,8 +1,8 @@
 """Legacy desktop tool: Markdown -> DOCX with a small tkinter window.
 
-Independent of the web service (web_app.py) and its converters package.
-Needs: markdown, python-docx, beautifulsoup4 (see requirements.txt).
-Run: python app.py
+Independent of the web service (../web_app.py) and its converters package.
+Needs: markdown, python-docx, beautifulsoup4 (see requirements.txt here).
+Run from this folder: python app.py
 """
 
 import os
