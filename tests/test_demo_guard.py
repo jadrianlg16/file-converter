@@ -111,9 +111,17 @@ class TestPersistence(GuardTestCase):
 
 
 class TestClientIp(unittest.TestCase):
-    def test_one_proxy_uses_the_entry_it_appended(self):
+    def test_default_trusts_no_header(self):
+        # FC-3: a directly exposed app (the default, proxy_hops=0) must ignore
+        # X-Forwarded-For, or a client forges it to dodge the per-IP limit.
         self.assertEqual(
             client_ip({"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}, "172.17.0.1"),
+            "172.17.0.1",
+        )
+
+    def test_one_proxy_uses_the_entry_it_appended(self):
+        self.assertEqual(
+            client_ip({"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}, "172.17.0.1", proxy_hops=1),
             "10.0.0.1",
         )
 
@@ -126,7 +134,7 @@ class TestClientIp(unittest.TestCase):
         # The same real client sending a different fake entry every time
         # must still resolve to one IP, or the per-IP limit is useless.
         seen = {
-            client_ip({"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.7"}, "172.17.0.1")
+            client_ip({"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.7"}, "172.17.0.1", proxy_hops=1)
             for i in range(20)
         }
         self.assertEqual(seen, {"203.0.113.7"})
@@ -142,6 +150,21 @@ class TestClientIp(unittest.TestCase):
     def test_falls_back_to_peer(self):
         self.assertEqual(client_ip({}, "172.17.0.1"), "172.17.0.1")
         self.assertEqual(client_ip({}, None), "unknown")
+
+
+class TestForgedHeaderDefault(GuardTestCase):
+    def test_default_guard_ignores_forged_header(self):
+        # FC-3 end to end: with DEMO_PROXY_HOPS unset, a visitor rotating a
+        # fake X-Forwarded-For from one socket is still held to the per-IP cap.
+        self.set_env(DEMO_MODE="1", DEMO_RATE_PER_HOUR="3")
+        guard = DemoGuard(os.path.join(self._tmp.name, "g.sqlite"))
+        self.assertEqual(guard.proxy_hops, 0)
+        peer = "198.51.100.7"
+        verdicts = []
+        for i in range(6):
+            ip = client_ip({"X-Forwarded-For": f"10.0.0.{i}"}, peer, guard.proxy_hops)
+            verdicts.append(guard.check_and_count(ip, "csv", "json", now=T0).allowed)
+        self.assertEqual(verdicts, [True, True, True, False, False, False])
 
 
 if __name__ == "__main__":

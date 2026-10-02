@@ -11,7 +11,8 @@ public, and bounds worst-case abuse of a shared box:
   DEMO_BLOCK           comma-separated extensions to refuse entirely (default "")
   DEMO_REPO_URL        self-host link shown in limit messages
   DEMO_PROXY_HOPS      reverse proxies in front of the app that append to
-                       X-Forwarded-For (default 1; 0 = exposed directly)
+                       X-Forwarded-For (default 0 = trust no header; set it to
+                       the number of proxies you actually run)
 
 Counters live in a small SQLite database in DATA_DIR so they are shared
 across gunicorn workers and survive restarts. Stdlib-only on purpose — the
@@ -59,7 +60,10 @@ class DemoGuard:
             if e.strip()
         }
         self.repo_url = os.environ.get("DEMO_REPO_URL", "https://github.com/")
-        self.proxy_hops = max(0, _env_int("DEMO_PROXY_HOPS", 1))
+        # Default 0: trust no X-Forwarded-For, because a directly exposed app
+        # would otherwise let a client forge the header and dodge the per-IP
+        # limit. Set it to the number of proxies that append to the header.
+        self.proxy_hops = max(0, _env_int("DEMO_PROXY_HOPS", 0))
         self.db_path = db_path
         if self.enabled:
             self._init_db()
@@ -141,7 +145,7 @@ class DemoGuard:
             )
 
 
-def client_ip(headers: Mapping[str, str], remote_addr: str | None, proxy_hops: int = 1) -> str:
+def client_ip(headers: Mapping[str, str], remote_addr: str | None, proxy_hops: int = 0) -> str:
     """Real client IP when running behind ``proxy_hops`` reverse proxies.
 
     Each proxy *appends* the peer it saw to X-Forwarded-For, so only the last
