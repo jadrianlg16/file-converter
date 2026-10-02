@@ -1,5 +1,5 @@
-# Web service + conversion engine (Python deps). System binaries (pandoc,
-# libreoffice, calibre, ffmpeg) are installed via apt in the Dockerfile.
+# Web service + conversion engine (Python deps). The system engines (pandoc,
+# LibreOffice, Calibre, ffmpeg) are installed by the Dockerfile.
 #
 # Exact pins: this is the set the test suite last passed with, so an image
 # rebuild can't silently pull a new major (pandas, Pillow, PyMuPDF...).
@@ -16,9 +16,6 @@ weasyprint==70.0        # pandoc PDF engine (no TeX needed)
 pymupdf==1.28.2         # PDF -> text/html/image extraction (import: fitz)
 pdf2docx==0.5.13        # PDF -> DOCX (best effort); pulls in python-docx
 python-docx==1.2.0      # docx post-processing (page-spill fixup in documents.py)
-markdown==3.11          # only used by the legacy app.py
-beautifulsoup4==4.15.0  # only used by the legacy app.py
-lxml==6.1.3
 
 # Images
 pillow==12.3.0
