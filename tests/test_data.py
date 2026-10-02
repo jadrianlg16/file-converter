@@ -238,3 +238,49 @@ def test_utf8_bom_csv_header_is_clean(tmp_path):
     out = os.path.join(str(tmp_path), "out.json")
     data.convert_tabular(p, out)
     assert json.loads(Path(out).read_text(encoding="utf-8")) == [{"id": 1, "name": "Ana"}]
+
+
+# --- Security: YAML alias bomb (FC-1) --------------------------------------
+
+
+def test_yaml_aliases_are_refused(tmp_path):
+    """A YAML anchor expanded many times can balloon a tiny file into
+    gigabytes; the loader must refuse aliases outright."""
+    pytest.importorskip("yaml")
+    lines = ["l0: &l0 [x, x, x, x, x, x, x, x, x, x]"]
+    for i in range(1, 7):
+        refs = ", ".join([f"*l{i - 1}"] * 10)
+        lines.append(f"l{i}: &l{i} [{refs}]")
+    lines.append("top: *l6")
+    src = os.path.join(str(tmp_path), "bomb.yaml")
+    Path(src).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = os.path.join(str(tmp_path), "out.json")
+    with pytest.raises(ConversionError, match="alias"):
+        data.convert_tabular(src, out)
+    # nothing partial should have been written past the cap
+    assert not os.path.exists(out) or os.path.getsize(out) < 1024 * 1024
+
+
+def test_plain_yaml_without_aliases_still_works(tmp_path):
+    pytest.importorskip("yaml")
+    src = os.path.join(str(tmp_path), "ok.yaml")
+    Path(src).write_text("- {id: 1, name: Ana}\n- {id: 2, name: Beto}\n", encoding="utf-8")
+    out = os.path.join(str(tmp_path), "out.json")
+    data.convert_tabular(src, out)
+    import json
+
+    assert json.loads(Path(out).read_text(encoding="utf-8")) == [
+        {"id": 1, "name": "Ana"},
+        {"id": 2, "name": "Beto"},
+    ]
+
+
+def test_output_size_cap_rejects_huge_result(tmp_path, monkeypatch):
+    """The output-size cap refuses an oversized conversion before it lands."""
+    monkeypatch.setattr(data, "_MAX_OUTPUT_BYTES", 1000)
+    big = pd.DataFrame({"col": ["x" * 50] * 100})
+    src = os.path.join(str(tmp_path), "big.csv")
+    big.to_csv(src, index=False)
+    out = os.path.join(str(tmp_path), "out.json")
+    with pytest.raises(ConversionError, match="larger than"):
+        data.convert_tabular(src, out)
