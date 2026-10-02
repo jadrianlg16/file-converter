@@ -59,17 +59,20 @@ def test_failed_conversion_leaves_no_files_behind(client):
     assert _work_files() == before
 
 
-def test_unexpected_handler_crash_is_a_json_500(client, monkeypatch):
+def test_unexpected_handler_crash_is_a_json_500(client, monkeypatch, caplog):
     def crash(_in, out):
         with open(out, "w") as fh:
             fh.write("partial")
-        raise RuntimeError("kaboom")
+        raise RuntimeError("kaboom at /app/data/secret-path")
 
     monkeypatch.setattr(web_app, "get_converter", lambda s, t: crash)
     before = _work_files()
     resp = _post(client, "x.csv", b"a\n1\n", "json")
     assert resp.status_code == 500
-    assert "kaboom" in resp.get_json()["error"]
+    error = resp.get_json()["error"]
+    # The client gets a generic message; the detail is only in the log.
+    assert error and "kaboom" not in error and "/app/data" not in error
+    assert "kaboom at /app/data/secret-path" in caplog.text
     assert _work_files() == before
 
 

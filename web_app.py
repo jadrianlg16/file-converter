@@ -110,9 +110,11 @@ def convert():
         error = (f".{src} → .{target} is not implemented yet.", 501)
     except ConversionError as e:
         error = (str(e), 422)
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a handler bug must still answer in JSON
+        # The exception text can carry server paths and library internals;
+        # it goes to the log, and the client gets a generic message.
         flask_app.logger.exception("Unexpected failure converting .%s -> .%s", src, target)
-        error = (f"Conversion failed: {e}", 500)
+        error = ("Conversion failed because of an unexpected server error.", 500)
     finally:
         _safe_unlink(in_path)
 
