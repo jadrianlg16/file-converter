@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# An explicit `shell: bash` runs steps with `bash -eo pipefail`; the implicit
+# default is `bash -e`, under which `pytest ... | tee log` would report the
+# exit status of tee and let failing tests pass the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint-and-test:
     name: Lint and tests (no engines)
