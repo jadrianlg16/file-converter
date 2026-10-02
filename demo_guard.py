@@ -1,8 +1,8 @@
 """Demo-instance guard — opt-in usage limits for hosting a public demo.
 
-The full self-hosted app has no limits; this module only activates when the
-``DEMO_MODE=1`` env var is set (e.g. on the public demo at adriangaona.dev),
-bounding worst-case abuse of a shared box:
+The full self-hosted app has no limits. This module only activates when the
+``DEMO_MODE=1`` env var is set, which is meant for an instance open to the
+public, and bounds worst-case abuse of a shared box:
 
   DEMO_MODE            "1" enables the guard (default: off)
   DEMO_MAX_UPLOAD_MB   per-file upload cap (default 10; full app: MAX_UPLOAD_MB)
