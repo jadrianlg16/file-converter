@@ -5,10 +5,11 @@ web app for documents, images, data, ebooks and audio.
 
 File Converter puts Pandoc, LibreOffice, Calibre, ffmpeg and a few Python libraries
 behind one small Flask API and a drag-and-drop page, so you don't have to remember
-which tool converts what, or install each one yourself. It is built for running on
-your own machine or a trusted network. It covers 38 file extensions and 315
-source → target pairs, and its PDF → Word path repairs the layout damage that
-plain pdf2docx output usually has.
+which tool converts what. The Docker image installs all of them. It is for people
+who would rather not upload their files to an online converter, and it is built for
+running on your own machine or a trusted network. It covers 38 file extensions and
+315 source → target pairs. Its PDF → Word path repairs several kinds of layout
+damage that raw pdf2docx output produces.
 
 ![File Converter in the dark theme: harbor-sunset.png was dropped in, the page lists PDF plus seven image targets, WEBP is selected, and a green banner reads Done. Downloaded harbor-sunset.webp](docs/screenshot.png)
 
@@ -34,8 +35,8 @@ walkthrough of the real interface.
 
 - **Drag and drop or browse.** The page offers only the targets the server has registered for that file's extension, grouped by family.
 - **38 extensions, 315 conversion pairs.** Both counts come from `converters.matrix()`, and aliases such as `jpg`/`jpeg` and `yml`/`yaml` are counted separately.
-- **PDF → DOCX with layout repair.** Repeated letterheads and footers become real Word headers and footers with `PAGE`/`NUMPAGES` fields. Side-by-side rows become tab stops, ruled tables keep their drawn column widths, and merged list lines are split again. When LibreOffice is installed, documents of up to 50 pages are re-rendered to check that no page spills onto an extra one.
-- **Clear errors instead of broken output.** Password-protected PDFs and scanned PDFs with no text layer are rejected before conversion. A missing engine is named in the error.
+- **PDF → DOCX with layout repair.** Repeated letterheads and footers become real Word headers and footers, with page numbers turned into `PAGE`/`NUMPAGES` fields. Side-by-side rows become tab stops, ruled tables keep their drawn column widths, and merged list lines are split again. When LibreOffice is installed, documents of up to 50 pages are re-rendered to check that no page spills onto an extra one.
+- **Clear errors instead of broken output.** PDF → DOCX rejects password-protected PDFs, and scanned PDFs with no text layer, before it starts. A missing engine is named in the error.
 - **Small JSON API** (`/api/formats`, `/convert`, `/health`) that works from `curl`.
 - **Light and dark themes**, keyboard support (arrow keys move between format chips; Enter or Space opens the file picker), and a skip link.
 - **Opt-in `DEMO_MODE`.** It adds a per-IP hourly limit, a daily budget, a smaller upload cap and blocked types.
@@ -63,8 +64,8 @@ own families.
 1. **A registry is the single source of truth.** Each family module calls `register()` / `register_many()` at import time. The Flask layer never hard-codes a format: it asks `matrix()` what is possible and `get_converter()` for the handler, and the UI renders whatever `/api/formats` returns. Adding a format means writing one handler, `fn(in_path, out_path)`, and one registration line. See [`converters/registry.py`](converters/registry.py).
 2. **External tools have one exit point.** Every call to pandoc, soffice, ebook-convert and ffmpeg goes through `engine.run()`. It passes an argument list (never `shell=True`), enforces a timeout (300 s, or 240 s for LibreOffice), and turns a non-zero exit into a `ConversionError` that carries the tool's stderr. Each LibreOffice call gets its own profile directory, so parallel gunicorn workers don't fight over the profile lock. See [`converters/engine.py`](converters/engine.py).
 3. **Upload names never become paths.** The source extension must be a known format and the pair must be registered before anything is written. On disk the job is a random UUID, and the user's filename survives only as the download name, after `secure_filename`. See [`web_app.py`](web_app.py).
-4. **The PDF → DOCX repair is geometry-driven.** PyMuPDF reads the source layout, and python-docx repairs what pdf2docx produced. A verify-and-retry loop re-renders the DOCX with LibreOffice and tightens vertical spacing in steps until the page counts match. Each layout that once broke is a generated PDF fixture with its own test. See [`converters/pdf_docx_fixup.py`](converters/pdf_docx_fixup.py), [`converters/documents.py`](converters/documents.py), [`tests/pdf_fixtures.py`](tests/pdf_fixtures.py) and [`tests/test_pdf_layout.py`](tests/test_pdf_layout.py).
-5. **Tests skip rather than fail.** Heavy libraries are imported inside the handlers, so the package imports on a bare machine. Tests that need a missing binary skip and give the reason. See [`tests/conftest.py`](tests/conftest.py).
+4. **The PDF → DOCX repair is geometry-driven.** PyMuPDF reads the source layout, and python-docx repairs what pdf2docx produced. A verify-and-retry loop re-renders the DOCX with LibreOffice and tightens vertical spacing in up to three steps until the page counts match. Each layout that once broke is a generated PDF fixture with its own test. See [`converters/pdf_docx_fixup.py`](converters/pdf_docx_fixup.py), [`converters/documents.py`](converters/documents.py), [`tests/pdf_fixtures.py`](tests/pdf_fixtures.py) and [`tests/test_pdf_layout.py`](tests/test_pdf_layout.py).
+5. **Tests skip rather than fail.** Heavy libraries are imported inside the handlers, so the package still imports when one is missing. Tests that need a missing binary or library skip and give the reason. See [`tests/conftest.py`](tests/conftest.py).
 
 ## Tech stack and design decisions
 
@@ -110,8 +111,8 @@ requirements.dev.txt     runtime dependencies plus pytest
 
 ### Docker (recommended: every engine included)
 
-Requires Docker (tested with Docker Engine 29.5). The image is about
-2.6 GB, because it bundles LibreOffice and Calibre.
+Requires Docker (tested with Docker Engine 29.5). The image is about 2.6 GB,
+since it bundles Pandoc, LibreOffice, Calibre and ffmpeg.
 
 ```bash
 git clone https://github.com/jadrianlg16/file-converter.git
@@ -130,6 +131,7 @@ get newer versions.
 Requires Python 3.12. To get the families that use them, put `pandoc`, LibreOffice
 (`soffice`), Calibre (`ebook-convert`) and `ffmpeg` on your `PATH`. Without them,
 images, data and PDF extraction still work, and other pairs return a clear error.
+SVG input also needs the Cairo system library, which CairoSVG loads.
 
 ```bash
 python3.12 -m venv .venv                          # Windows: py -3.12 -m venv .venv
@@ -138,8 +140,8 @@ pip install -r requirements.web.txt
 DATA_DIR=./data flask --app web_app run --port 5007   # PowerShell: $env:DATA_DIR="data"; flask --app web_app run --port 5007
 ```
 
-`DATA_DIR` must point at a writable folder, because the default, `/app/data`, is
-the container path. `flask run` listens on `127.0.0.1`. `python web_app.py`
+Set `DATA_DIR` to a writable folder, because the default, `/app/data`, is the
+container path. `flask run` listens on `127.0.0.1`. `python web_app.py`
 also works, but it binds to `0.0.0.0` (every interface).
 
 ## API
@@ -180,12 +182,12 @@ pip install -r requirements.dev.txt
 pytest -rs
 ```
 
-The suite covers the registry wiring and the Flask endpoints, each converter
-family against small fixtures generated inside the tests, the PDF → DOCX layout
-repairs, and the demo guard. Tests that need `pandoc`, `soffice` or
-`ebook-convert` skip when the binary is missing, and `-rs` prints each reason
-(for example `pandoc not installed`). To run all of them, use the image, which
-has every engine:
+The suite covers the registry wiring, the `/health` and `/api/formats`
+endpoints, each converter family against small fixtures generated inside the
+tests, the PDF → DOCX layout repairs, and the demo guard. Tests that need
+`pandoc`, `soffice`, `ebook-convert` or `ffmpeg` skip when the binary is missing,
+and `-rs` prints each reason (for example `pandoc not installed`). To run all of
+them, use the image, which has every engine:
 
 ```bash
 docker run --rm -v "$PWD/tests:/app/tests:ro" file-converter sh -c "pip install -q pytest && python -m pytest -q tests"
@@ -200,9 +202,9 @@ standard library.
 network, and don't expose it to the internet as-is.**
 
 - **Pandoc can read server files.** Pandoc runs without `--sandbox` ([`converters/engine.py`](converters/engine.py)), so a crafted document can pull local files into its output. An HTML file containing `<img src="/etc/passwd">` came back as a DOCX with the container's `/etc/passwd` embedded.
-- **The container runs as root.** Calibre's Qt WebEngine also starts with `--no-sandbox` (set in the [`Dockerfile`](Dockerfile)), because Chromium won't run as root otherwise.
-- **`DEMO_MODE` limits volume, not risk.** It does not sandbox document parsing. The per-IP limit trusts the first `X-Forwarded-For` value, so a client that sends its own header bypasses the hourly limit. Only the daily budget still applies.
-- **Converted files are never deleted.** They pile up in `DATA_DIR`. `send_file` returns a direct-passthrough response, which skips the `call_on_close` cleanup in [`web_app.py`](web_app.py). Clear the folder now and then.
+- **The container runs as root.** Calibre's Qt WebEngine, which renders its PDF output, also starts with `--no-sandbox` (set in the [`Dockerfile`](Dockerfile)), because Chromium won't run as root otherwise.
+- **`DEMO_MODE` limits volume, not risk.** It does not sandbox document parsing. The per-IP limit trusts the first `X-Forwarded-For` value, so a client that sends its own header bypasses the hourly limit. The daily budget, upload cap and blocked types still apply.
+- **Converted files are never deleted.** Output files pile up in `DATA_DIR`. `send_file` returns a direct-passthrough response, which skips the `call_on_close` cleanup in [`web_app.py`](web_app.py). Each LibreOffice call also leaves its profile folder in the temp directory. Clear both now and then.
 - **Converting to `.json` in the page shows "Conversion failed (HTTP 200)"** even though the server returned the file. [`static/app.js`](static/app.js) treats every JSON response as an error. The API and `curl` are unaffected.
 - **Oversized uploads get Flask's default HTML 413 page**, not a JSON error.
 - **PDF → editable formats is best-effort.** There is no OCR, and PDF → image renders only the first page.
