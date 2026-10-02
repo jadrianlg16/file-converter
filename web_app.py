@@ -9,6 +9,7 @@ defined entirely by the ``converters`` package; this layer only:
 
 Source format is auto-detected from the uploaded filename's extension.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -28,7 +29,8 @@ flask_app = Flask(__name__, static_folder="static", template_folder="templates")
 # guard's SQLite file. The Docker image sets DATA_DIR=/app/data; a source
 # checkout defaults to the git-ignored ./data next to this file.
 WORK = os.environ.get("DATA_DIR") or os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data")
+    os.path.dirname(os.path.abspath(__file__)), "data"
+)
 os.makedirs(WORK, exist_ok=True)
 
 guard = DemoGuard(os.path.join(WORK, "demo-guard.sqlite"))
@@ -144,8 +146,10 @@ def convert():
 
 def _build_stamp() -> str:
     try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "BUILD_STAMP"), encoding="utf-8") as fh:
+        with open(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "BUILD_STAMP"),
+            encoding="utf-8",
+        ) as fh:
             return fh.read().strip()
     except OSError:
         return "dev (no BUILD_STAMP — running outside the Docker image)"

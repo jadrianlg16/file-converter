@@ -1,4 +1,5 @@
 """Replace pdf2docx's multi-column sections with a borderless layout table."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -106,12 +107,12 @@ def _column_widths_tw(doc: Any, group: list[Section]) -> list[int]:
     widths_tw = []
     c = group[0]["sect"].find(f"{W_NS}cols")
     if c is not None:
-        widths_tw = [int(col.get(qn("w:w")) or 0)
-                     for col in c.findall(f"{W_NS}col")]
+        widths_tw = [int(col.get(qn("w:w")) or 0) for col in c.findall(f"{W_NS}col")]
     if len(widths_tw) != n or not all(widths_tw):
         sec_obj = doc.sections[0]
-        text_tw = int(sec_obj.page_width - sec_obj.left_margin -
-                      sec_obj.right_margin) // EMU_PER_TWIP
+        text_tw = (
+            int(sec_obj.page_width - sec_obj.left_margin - sec_obj.right_margin) // EMU_PER_TWIP
+        )
         widths_tw = [text_tw // n] * n
     return widths_tw
 
@@ -121,25 +122,21 @@ def _layout_table(doc: Any, widths_tw: list[int]) -> Table:
     table = doc.add_table(rows=1, cols=len(widths_tw))
     table.autofit = False
     set_table_borders(table, bottom_rule=False)
-    for gc, w in zip(table._tbl.tblGrid.findall(f"{W_NS}gridCol"), widths_tw,
-                     strict=True):
+    for gc, w in zip(table._tbl.tblGrid.findall(f"{W_NS}gridCol"), widths_tw, strict=True):
         gc.set(qn("w:w"), str(w))
     return table
 
 
-def _rebuild_cell(doc: Any, body: Any, sec: Section, cell: _Cell,
-                  rows: list[Row]) -> bool:
+def _rebuild_cell(doc: Any, body: Any, sec: Section, cell: _Cell, rows: list[Row]) -> bool:
     """Fill ``cell`` from PDF geometry, one paragraph per source line, with
     the original formatting. Only done when the PDF rows account for all of
     the section's text and nothing a text rebuild would drop is present;
     returns False (leaving everything untouched) otherwise."""
-    texts = [p.text for p in iter_elements_paragraphs(sec["els"], doc)
-             if p.text.strip()]
+    texts = [p.text for p in iter_elements_paragraphs(sec["els"], doc) if p.text.strip()]
     sq = squash("".join(texts))
     matched = [r for r in rows if r.squash and r.squash in sq]
     covered = sum(len(r.squash) for r in matched)
-    if not (matched and covered == len(sq)
-            and not any(has_opaque(el) for el in sec["els"])):
+    if not (matched and covered == len(sq) and not any(has_opaque(el) for el in sec["els"])):
         return False
 
     matched.sort(key=lambda r: r.spans[0].y0)
@@ -157,8 +154,7 @@ def _rebuild_cell(doc: Any, body: Any, sec: Section, cell: _Cell,
         row_x0 = min(s.x0 for s in r.spans)
         row_x1 = max(s.x1 for s in r.spans)
         # a short line centred over the column was centred in the source
-        if (row_x1 - row_x0 < (cl_x1 - cl_x0) * 0.85
-                and abs((row_x0 + row_x1) / 2 - cl_cx) <= 8):
+        if row_x1 - row_x0 < (cl_x1 - cl_x0) * 0.85 and abs((row_x0 + row_x1) / 2 - cl_cx) <= 8:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for si, sp in enumerate(r.spans):
             add_span_runs(p, sp, " " if si < len(r.spans) - 1 else "")

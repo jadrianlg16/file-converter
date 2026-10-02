@@ -43,6 +43,7 @@ document with python-docx:
 Everything is best-effort: the repairs raise freely and the caller guards
 each one, falling back to the plain pdf2docx output.
 """
+
 from .analysis import analyze_pdf
 from .bands import redact_bands
 from .columns import flatten_column_sections

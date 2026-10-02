@@ -17,6 +17,7 @@ Counters live in a small SQLite database in DATA_DIR so they are shared
 across gunicorn workers and survive restarts. Stdlib-only on purpose — the
 module is unit-testable without Flask or any conversion engine installed.
 """
+
 from __future__ import annotations
 
 import os
@@ -61,8 +62,7 @@ class DemoGuard:
 
     # -- public API ----------------------------------------------------------
 
-    def check_and_count(self, ip: str, src: str, target: str,
-                        now: float | None = None) -> Verdict:
+    def check_and_count(self, ip: str, src: str, target: str, now: float | None = None) -> Verdict:
         """Gate one conversion attempt. Counts the attempt when allowed."""
         if not self.enabled:
             return Verdict(True)
@@ -70,7 +70,8 @@ class DemoGuard:
 
         if src in self.blocked or target in self.blocked:
             return Verdict(
-                False, 403,
+                False,
+                403,
                 f".{src} → .{target} is disabled on this demo instance. "
                 f"The self-hosted app supports it: {self.repo_url}",
             )
@@ -85,7 +86,8 @@ class DemoGuard:
             ).fetchone()
             if used_today >= self.daily_budget:
                 return Verdict(
-                    False, 429,
+                    False,
+                    429,
                     "Today's demo budget is spent. It resets at midnight UTC — "
                     f"or run the full app yourself, no limits: {self.repo_url}",
                 )
@@ -95,7 +97,8 @@ class DemoGuard:
             ).fetchone()
             if recent >= self.rate_per_hour:
                 return Verdict(
-                    False, 429,
+                    False,
+                    429,
                     f"Demo limit: {self.rate_per_hour} conversions per hour. "
                     f"Self-host for unlimited use: {self.repo_url}",
                 )
@@ -127,9 +130,7 @@ class DemoGuard:
     def _init_db(self) -> None:
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         with closing(self._db()) as db, db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS hits (ip TEXT NOT NULL, ts REAL NOT NULL)"
-            )
+            db.execute("CREATE TABLE IF NOT EXISTS hits (ip TEXT NOT NULL, ts REAL NOT NULL)")
             db.execute("CREATE INDEX IF NOT EXISTS hits_ip_ts ON hits (ip, ts)")
             db.execute(
                 "CREATE TABLE IF NOT EXISTS budget (day TEXT PRIMARY KEY, n INTEGER NOT NULL)"
@@ -146,8 +147,7 @@ def client_ip(headers, remote_addr: str | None, proxy_hops: int = 1) -> str:
     the header is ignored and the socket peer is used.
     """
     if proxy_hops > 0:
-        chain = [p.strip() for p in headers.get("X-Forwarded-For", "").split(",")
-                 if p.strip()]
+        chain = [p.strip() for p in headers.get("X-Forwarded-For", "").split(",") if p.strip()]
         if chain:
             return chain[-min(proxy_hops, len(chain))]
     return remote_addr or "unknown"

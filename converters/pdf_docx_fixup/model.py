@@ -3,6 +3,7 @@
 PDF text and DOCX text are compared through :func:`squash` (all whitespace
 removed), because pdf2docx re-wraps lines and drops or adds spaces freely.
 """
+
 from __future__ import annotations
 
 import re
@@ -29,6 +30,7 @@ def squash(text: str) -> str:
 @dataclass
 class Span:
     """One run of identically formatted text on a single baseline."""
+
     text: str
     x0: float
     x1: float
@@ -39,7 +41,7 @@ class Span:
     bold: bool
     italic: bool
     color: int = 0  # sRGB int as reported by PyMuPDF (0 = black)
-    lead_space: bool = False   # raw text had leading/trailing whitespace
+    lead_space: bool = False  # raw text had leading/trailing whitespace
     trail_space: bool = False  # (stripped, but still a word boundary)
     parts: list[Span] = field(default_factory=list)  # coalesced pieces, own format
 
@@ -47,6 +49,7 @@ class Span:
 @dataclass
 class Row:
     """Spans sharing one visual baseline, wide gaps between them."""
+
     spans: list[Span]
     squash: str
 
@@ -54,6 +57,7 @@ class Row:
 @dataclass
 class BlockInfo:
     """One fitz text block: used for raggedness lookup."""
+
     squash: str
     line_x1: list[float]
     width: float
@@ -62,19 +66,20 @@ class BlockInfo:
 @dataclass
 class RepeatedBlock:
     """A text block that recurs at the same place on most pages."""
-    lines: list[list[Span]]          # from the first occurrence
+
+    lines: list[list[Span]]  # from the first occurrence
     occurrences: dict[int, fitz.Rect] = field(default_factory=dict)  # page -> rect
     # (line index, span index) -> [(start, end, "PAGE" | "NUMPAGES")]
-    span_markers: dict[tuple[int, int], list[tuple[int, int, str]]] = field(
-        default_factory=dict)
+    span_markers: dict[tuple[int, int], list[tuple[int, int, str]]] = field(default_factory=dict)
     bbox: tuple[float, float, float, float] = (0, 0, 0, 0)
-    exact: bool = True               # repeats with identical text (digits too)
-    has_page_token: bool = False     # contains a page-number-tracking digit
+    exact: bool = True  # repeats with identical text (digits too)
+    has_page_token: bool = False  # contains a page-number-tracking digit
 
 
 @dataclass
 class Band:
     """Everything that repeats in the header or footer zone."""
+
     blocks: list[RepeatedBlock] = field(default_factory=list)
     rule: dict[str, Any] | None = None  # {"occurrences": {page: Rect}, "y": float}
     images: list[dict[str, Any]] = field(default_factory=list)  # {occurrences, data, ext, bbox}
@@ -84,6 +89,7 @@ class Band:
 @dataclass
 class Layout:
     """Per-page geometry of the source PDF that the DOCX repairs work from."""
+
     page_w: float
     page_h: float
     page_count: int

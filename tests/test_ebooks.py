@@ -4,6 +4,7 @@ The actual conversions need Calibre's ``ebook-convert`` binary, which is rarely
 present on a dev box, so those tests are decorated with ``@requires(...)`` and
 SKIP when it's missing. The registry-wiring test runs everywhere.
 """
+
 import os
 import sys
 import zipfile

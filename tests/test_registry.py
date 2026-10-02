@@ -1,4 +1,5 @@
 """Wiring tests for the registry + Flask layer. No external engines needed."""
+
 import os
 import sys
 
@@ -33,11 +34,19 @@ def test_no_identity_conversions():
 def test_core_pairs_exist():
     # A few representative pairs from each family must be wired.
     for src, dst in [
-        ("md", "pdf"), ("docx", "md"), ("pdf", "docx"),
-        ("png", "jpg"), ("svg", "png"), ("png", "pdf"),
-        ("csv", "json"), ("xlsx", "csv"), ("json", "yaml"),
-        ("epub", "mobi"), ("mobi", "epub"),
-        ("mp3", "wav"), ("wav", "flac"),
+        ("md", "pdf"),
+        ("docx", "md"),
+        ("pdf", "docx"),
+        ("png", "jpg"),
+        ("svg", "png"),
+        ("png", "pdf"),
+        ("csv", "json"),
+        ("xlsx", "csv"),
+        ("json", "yaml"),
+        ("epub", "mobi"),
+        ("mobi", "epub"),
+        ("mp3", "wav"),
+        ("wav", "flac"),
     ]:
         assert get_converter(src, dst) is not None, f"missing {src}->{dst}"
 

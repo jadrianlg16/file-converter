@@ -45,8 +45,9 @@ Each format module registers its pairs at import time:
 
 ```python
 from .registry import register, register_many
-register("md", "pdf", md_to_pdf)          # one pair
-register_many(SRCS, DSTS, handler)        # cartesian product, skips equal pairs
+
+register("md", "pdf", md_to_pdf)  # one pair
+register_many(SRCS, DSTS, handler)  # cartesian product, skips equal pairs
 ```
 
 Every extension must exist in `registry.FORMATS`. The last registration wins,

@@ -5,6 +5,7 @@ raster paths additionally need cairosvg / PyMuPDF (fitz) and skip when those are
 missing. Audio tests require the ffmpeg binary and skip otherwise. Every test
 generates its own tiny fixture, so the suite is self-contained.
 """
+
 import importlib
 import os
 import sys
@@ -42,6 +43,7 @@ def _nonempty(path: str) -> bool:
 # Image fixtures
 # --------------------------------------------------------------------------- #
 
+
 def _make_png(path: str, mode="RGBA", size=(2, 2), color=(255, 0, 0, 128)):
     from PIL import Image
 
@@ -52,6 +54,7 @@ def _make_png(path: str, mode="RGBA", size=(2, 2), color=(255, 0, 0, 128)):
 # --------------------------------------------------------------------------- #
 # Raster <-> raster
 # --------------------------------------------------------------------------- #
+
 
 @requires_pillow
 @pytest.mark.parametrize("target", ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "tif"])
@@ -105,6 +108,7 @@ def test_invalid_image_raises_conversion_error(tmp_path):
 # --------------------------------------------------------------------------- #
 # Raster -> PDF
 # --------------------------------------------------------------------------- #
+
 
 @requires_pillow
 def test_raster_to_pdf(tmp_path):
@@ -165,6 +169,7 @@ def test_svg_without_cairosvg_gives_clear_error(tmp_path, monkeypatch):
 # PDF -> raster (needs fitz + Pillow)
 # --------------------------------------------------------------------------- #
 
+
 @requires_pillow
 @requires_fitz
 @pytest.mark.parametrize("target", ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "tif"])
@@ -195,15 +200,22 @@ def test_pdf_to_raster_first_page(tmp_path, target):
 # Audio (needs ffmpeg)
 # --------------------------------------------------------------------------- #
 
+
 def _make_wav(path: str, duration="0.3"):
     """Generate a short sine-tone WAV via ffmpeg."""
     from converters import engine
 
-    engine.run([
-        "ffmpeg", "-y", "-f", "lavfi",
-        "-i", f"sine=frequency=440:duration={duration}",
-        path,
-    ])
+    engine.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={duration}",
+            path,
+        ]
+    )
     return path
 
 

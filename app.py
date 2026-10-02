@@ -4,6 +4,7 @@ Independent of the web service (web_app.py) and its converters package.
 Needs: markdown, python-docx, beautifulsoup4 (see requirements.txt).
 Run: python app.py
 """
+
 import os
 import threading
 import tkinter as tk
@@ -132,22 +133,16 @@ class App(tk.Tk):
         ttk.Entry(frame, textvariable=self.input_var, width=48).grid(
             row=0, column=1, padx=8, pady=6
         )
-        ttk.Button(frame, text="Browse…", command=self._pick_input).grid(
-            row=0, column=2, pady=6
-        )
+        ttk.Button(frame, text="Browse…", command=self._pick_input).grid(row=0, column=2, pady=6)
 
         ttk.Label(frame, text="Output (.docx)").grid(row=1, column=0, sticky="w", pady=6)
         self.output_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.output_var, width=48).grid(
             row=1, column=1, padx=8, pady=6
         )
-        ttk.Button(frame, text="Browse…", command=self._pick_output).grid(
-            row=1, column=2, pady=6
-        )
+        ttk.Button(frame, text="Browse…", command=self._pick_output).grid(row=1, column=2, pady=6)
 
-        self.convert_btn = ttk.Button(
-            frame, text="Convert", command=self._convert
-        )
+        self.convert_btn = ttk.Button(frame, text="Convert", command=self._convert)
         self.convert_btn.grid(row=2, column=0, columnspan=3, pady=(14, 6))
 
         self.status_var = tk.StringVar(value="Ready.")
@@ -193,21 +188,15 @@ class App(tk.Tk):
                 convert_md_to_docx(inp, out)
                 self.after(
                     0,
-                    lambda: self.status_var.set(
-                        f"Done! Saved to {os.path.basename(out)}"
-                    ),
+                    lambda: self.status_var.set(f"Done! Saved to {os.path.basename(out)}"),
                 )
-                self.after(
-                    0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out}")
-                )
+                self.after(0, lambda: messagebox.showinfo("Success", f"Saved to:\n{out}"))
             except Exception as e:  # noqa: BLE001 - every failure goes to the dialog
                 # Bind the message now: Python unbinds `e` when this block
                 # exits, before Tk gets around to running the callbacks.
                 msg = str(e)
                 self.after(0, lambda: self.status_var.set(f"Error: {msg}"))
-                self.after(
-                    0, lambda: messagebox.showerror("Conversion failed", msg)
-                )
+                self.after(0, lambda: messagebox.showerror("Conversion failed", msg))
             finally:
                 self.after(0, lambda: self.convert_btn.config(state="normal"))
 

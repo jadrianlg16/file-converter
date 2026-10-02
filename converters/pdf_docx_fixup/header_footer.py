@@ -1,4 +1,5 @@
 """Rebuild the detected bands as a real Word header and footer."""
+
 from __future__ import annotations
 
 import io
@@ -60,8 +61,9 @@ def _add_field(paragraph: Paragraph, instr: str, shown: str, span: Span) -> None
     paragraph._p.append(fld)
 
 
-def _emit_span(paragraph: Paragraph, span: Span, markers: list[tuple[int, int, str]],
-               trailing_space: bool) -> None:
+def _emit_span(
+    paragraph: Paragraph, span: Span, markers: list[tuple[int, int, str]], trailing_space: bool
+) -> None:
     """Write one span into ``paragraph`` as formatted runs, substituting
     PAGE/NUMPAGES fields at the span-local marker offsets."""
     if not markers:
@@ -112,8 +114,9 @@ def _bucket(bbox: tuple[float, ...], W: float) -> str:
     return "center"
 
 
-def _bucket_band(band: Band, W: float) -> tuple[dict[str, list[SpanItem]],
-                                                  dict[str, list[dict[str, Any]]]]:
+def _bucket_band(
+    band: Band, W: float
+) -> tuple[dict[str, list[SpanItem]], dict[str, list[dict[str, Any]]]]:
     """Spans and images of ``band`` sorted into left/center/right buckets.
 
     Bucketing is per span, not per block: a single fitz block may span the
@@ -157,9 +160,9 @@ def _padded(width: float) -> float:
     return width * 1.10 + 8 if width else 24.0
 
 
-def _column_widths(lines: dict[str, list[list[SpanItem]]],
-                   images: dict[str, list[dict[str, Any]]],
-                   text_w: float) -> list[float]:
+def _column_widths(
+    lines: dict[str, list[list[SpanItem]]], images: dict[str, list[dict[str, Any]]], text_w: float
+) -> list[float]:
     """[left, center, right] cell widths in points.
 
     Widths come from the real line widths, since the docx text area may be
@@ -167,8 +170,7 @@ def _column_widths(lines: dict[str, list[list[SpanItem]]],
     are symmetric when a centered cell exists, so it stays page-centered."""
     need_l, need_c, need_r = (_needed_width(lines[n], images[n]) for n in _BUCKETS)
     if need_c and need_l and need_r:
-        left_w = right_w = min(max(_padded(need_l), _padded(need_r)),
-                               text_w * 0.40)
+        left_w = right_w = min(max(_padded(need_l), _padded(need_r)), text_w * 0.40)
     else:
         left_w = min(_padded(need_l), text_w - 48)
         right_w = min(_padded(need_r), text_w - left_w - 24)
@@ -176,8 +178,9 @@ def _column_widths(lines: dict[str, list[list[SpanItem]]],
     return [left_w, center_w, right_w]
 
 
-def _fill_band_cell(cell: _Cell, name: str, width: float,
-                    images: list[dict[str, Any]], lines: list[list[SpanItem]]) -> None:
+def _fill_band_cell(
+    cell: _Cell, name: str, width: float, images: list[dict[str, Any]], lines: list[list[SpanItem]]
+) -> None:
     """Images first, then one paragraph per visual line, aligned to the
     bucket's side of the page."""
     cell.width = Emu(int(width * EMU_PER_PT))
@@ -189,19 +192,19 @@ def _fill_band_cell(cell: _Cell, name: str, width: float,
         if isinstance(item, dict):
             w_pt = item["bbox"][2] - item["bbox"][0]
             try:
-                p.add_run().add_picture(io.BytesIO(item["data"]),
-                                        width=Emu(int(w_pt * EMU_PER_PT)))
-            except (UnrecognizedImageError, InvalidImageStreamError,
-                    UnexpectedEndOfFileError):
-                log.warning("Skipping a %s logo python-docx can't read",
-                            item.get("ext", "?"), exc_info=True)
+                p.add_run().add_picture(io.BytesIO(item["data"]), width=Emu(int(w_pt * EMU_PER_PT)))
+            except (UnrecognizedImageError, InvalidImageStreamError, UnexpectedEndOfFileError):
+                log.warning(
+                    "Skipping a %s logo python-docx can't read", item.get("ext", "?"), exc_info=True
+                )
             continue
         for gi, (sp, markers) in enumerate(item):
             _emit_span(p, sp, markers, gi < len(item) - 1)
 
 
-def _estimated_height(lines: dict[str, list[list[SpanItem]]],
-                      images: dict[str, list[dict[str, Any]]]) -> float:
+def _estimated_height(
+    lines: dict[str, list[list[SpanItem]]], images: dict[str, list[dict[str, Any]]]
+) -> float:
     """Rendered band height in points: the tallest bucket (sum of its line
     heights plus its images) and room for the shrunk trailing paragraph."""
     est = 0.0
@@ -246,8 +249,7 @@ def _first_page_band(band: Band) -> Band | None:
     """The part of ``band`` present on page 1 (None when nothing is)."""
     blocks = [b for b in band.blocks if 0 in b.occurrences]
     images = [i for i in band.images if 0 in i["occurrences"]]
-    rule = (band.rule if band.rule and 0 in band.rule["occurrences"]
-            else None)
+    rule = band.rule if band.rule and 0 in band.rule["occurrences"] else None
     if not blocks and not images and not rule:
         return None
     return Band(blocks=blocks, rule=rule, images=images)
@@ -260,17 +262,17 @@ def build_header_footer(doc: Any, layout: Layout) -> None:
     section = doc.sections[0]
     header_h = footer_h = 0.0
     if layout.header:
-        header_h = _build_band_content(section.header, layout.header,
-                                       layout, section)
+        header_h = _build_band_content(section.header, layout.header, layout, section)
     if layout.footer:
-        footer_h = _build_band_content(section.footer, layout.footer,
-                                       layout, section)
+        footer_h = _build_band_content(section.footer, layout.footer, layout, section)
     if any(b and not b.on_first_page for b in (layout.header, layout.footer)):
         # titlePg blanks BOTH first-page parts: rebuild whatever part of each
         # band page 1 does carry (already redacted from its body) there
         section.different_first_page_header_footer = True
-        for band, hf in ((layout.header, section.first_page_header),
-                         (layout.footer, section.first_page_footer)):
+        for band, hf in (
+            (layout.header, section.first_page_header),
+            (layout.footer, section.first_page_footer),
+        ):
             first = _first_page_band(band) if band else None
             if first:
                 _build_band_content(hf, first, layout, section)

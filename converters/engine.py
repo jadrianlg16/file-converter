@@ -4,6 +4,7 @@ Keeps all "shell out to an external binary" logic in one place so the format
 modules stay small and consistent. Every helper raises :class:`ConversionError`
 with a useful message on failure (which the Flask layer turns into a 4xx/5xx).
 """
+
 from __future__ import annotations
 
 import os
@@ -25,14 +26,13 @@ def have(binary: str) -> bool:
 def require(binary: str) -> str:
     path = shutil.which(binary)
     if not path:
-        raise ConversionError(
-            f"Required tool '{binary}' is not installed in this image."
-        )
+        raise ConversionError(f"Required tool '{binary}' is not installed in this image.")
     return path
 
 
-def run(cmd: list[str], timeout: int = 300, cwd: str | None = None,
-        env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+def run(
+    cmd: list[str], timeout: int = 300, cwd: str | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
     """Run ``cmd`` (a list), capturing output. Raise ConversionError on failure."""
     try:
         proc = subprocess.run(
@@ -56,8 +56,15 @@ def run(cmd: list[str], timeout: int = 300, cwd: str | None = None,
 
 # --- Pandoc -----------------------------------------------------------------
 
-def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
-           to_fmt: str | None = None, extra: list[str] | None = None) -> None:
+
+def pandoc(
+    in_path: str,
+    out_path: str,
+    *,
+    from_fmt: str | None = None,
+    to_fmt: str | None = None,
+    extra: list[str] | None = None,
+) -> None:
     """Run pandoc. ``out_path`` extension usually determines the writer, but
     ``to_fmt`` can force it. For PDF output we use a CSS engine (WeasyPrint) so
     we don't need a multi-GB TeX install.
@@ -80,8 +87,7 @@ def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
         # --sandbox doesn't reach the PDF engine, and WeasyPrint fetches any
         # file:// URL in the HTML (<a rel="attachment"> embeds the file in
         # the PDF). Only inline data: URIs are allowed through.
-        cmd += ["--pdf-engine=weasyprint",
-                "--pdf-engine-opt=--allowed-protocols=data"]
+        cmd += ["--pdf-engine=weasyprint", "--pdf-engine-opt=--allowed-protocols=data"]
     if extra:
         cmd += extra
     # PDF output writes its intermediate HTML into the working directory,
@@ -92,8 +98,10 @@ def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
 
 # --- LibreOffice (headless) -------------------------------------------------
 
-def soffice_convert(in_path: str, out_dir: str, target_ext: str,
-                    convert_filter: str | None = None) -> str:
+
+def soffice_convert(
+    in_path: str, out_dir: str, target_ext: str, convert_filter: str | None = None
+) -> str:
     """Convert via LibreOffice headless. Returns the produced file path.
 
     Each call uses a private, throwaway profile dir so concurrent gunicorn
@@ -106,12 +114,23 @@ def soffice_convert(in_path: str, out_dir: str, target_ext: str,
     profile = tempfile.mkdtemp(prefix="lo_profile_")
     to_arg = f"{target_ext}:{convert_filter}" if convert_filter else target_ext
     try:
-        run([
-            "soffice", "--headless", "--norestore", "--nolockcheck", "--nodefault",
-            # as_uri() yields a valid file URL on both POSIX and Windows paths
-            f"-env:UserInstallation={Path(profile).as_uri()}",
-            "--convert-to", to_arg, "--outdir", out_dir, in_path,
-        ], timeout=240)
+        run(
+            [
+                "soffice",
+                "--headless",
+                "--norestore",
+                "--nolockcheck",
+                "--nodefault",
+                # as_uri() yields a valid file URL on both POSIX and Windows paths
+                f"-env:UserInstallation={Path(profile).as_uri()}",
+                "--convert-to",
+                to_arg,
+                "--outdir",
+                out_dir,
+                in_path,
+            ],
+            timeout=240,
+        )
     finally:
         shutil.rmtree(profile, ignore_errors=True)
     base = os.path.splitext(os.path.basename(in_path))[0]
@@ -123,6 +142,7 @@ def soffice_convert(in_path: str, out_dir: str, target_ext: str,
 
 # --- ffmpeg -----------------------------------------------------------------
 
+
 def ffmpeg(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
     require("ffmpeg")
     cmd = ["ffmpeg", "-y", "-i", in_path]
@@ -133,6 +153,7 @@ def ffmpeg(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
 
 
 # --- Calibre ----------------------------------------------------------------
+
 
 def ebook_convert(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
     require("ebook-convert")

@@ -37,6 +37,7 @@ Design notes
 Heavy libraries (fitz, pdf2docx) are imported lazily *inside* the handlers so
 this module still imports when those libs/binaries are absent locally.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -55,8 +56,18 @@ from .registry import register, register_many
 log = logging.getLogger(__name__)
 
 TEXT_HUB = [
-    "md", "markdown", "rst", "txt", "html", "htm",
-    "docx", "odt", "rtf", "tex", "latex", "epub",
+    "md",
+    "markdown",
+    "rst",
+    "txt",
+    "html",
+    "htm",
+    "docx",
+    "odt",
+    "rtf",
+    "tex",
+    "latex",
+    "epub",
 ]
 
 # Map a file extension to the pandoc format name used for both reading and
@@ -65,7 +76,7 @@ _PANDOC_FMT = {
     "md": "markdown",
     "markdown": "markdown",
     "rst": "rst",
-    "txt": "plain",        # as a *writer*: emit plain text (no markup)
+    "txt": "plain",  # as a *writer*: emit plain text (no markup)
     "html": "html",
     "htm": "html",
     "docx": "docx",
@@ -88,6 +99,7 @@ def _ext(path: str) -> str:
 
 # --- Text hub: any -> any via Pandoc ---------------------------------------
 
+
 def text_to_text(in_path: str, out_path: str) -> None:
     """Convert between any two text-hub formats with Pandoc.
 
@@ -104,11 +116,11 @@ def text_to_text(in_path: str, out_path: str) -> None:
     if to_fmt == "markdown":
         extra += ["--wrap=none"]
 
-    pandoc(in_path, out_path, from_fmt=from_fmt, to_fmt=to_fmt,
-           extra=extra or None)
+    pandoc(in_path, out_path, from_fmt=from_fmt, to_fmt=to_fmt, extra=extra or None)
 
 
 # --- Anything text-ish -> PDF ----------------------------------------------
+
 
 def text_to_pdf(in_path: str, out_path: str) -> None:
     """Convert a text-hub format to PDF.
@@ -131,6 +143,7 @@ def text_to_pdf(in_path: str, out_path: str) -> None:
 
 
 # --- PDF -> editable formats (best effort) ---------------------------------
+
 
 def _fitz():
     """Import PyMuPDF lazily, with a clear error when it isn't installed."""
@@ -157,9 +170,7 @@ def _open_pdf(in_path: str):
         raise ConversionError(f"Could not read PDF: {e}") from e
     if doc.needs_pass:
         doc.close()
-        raise ConversionError(
-            "This PDF is password-protected. Remove the password and try again."
-        )
+        raise ConversionError("This PDF is password-protected. Remove the password and try again.")
     return doc
 
 
@@ -217,7 +228,7 @@ def pdf_to_html(in_path: str, out_path: str) -> None:
 
     html = (
         "<!DOCTYPE html>\n<html>\n<head>\n"
-        "<meta charset=\"utf-8\">\n"
+        '<meta charset="utf-8">\n'
         f"<title>{escape(title)}</title>\n"
         "</head>\n<body>\n" + "\n".join(body) + "\n</body>\n</html>\n"
     )
@@ -291,9 +302,9 @@ def _compact_docx(path: str, vscale: float = 1.0) -> None:
     # trim it away. is_linked_to_previous is checked first because reading
     # .paragraphs on a linked footer would create an empty definition.
     sec0 = doc.sections[0]
-    footer_in_use = (not sec0.footer.is_linked_to_previous and
-                     (bool(sec0.footer.tables) or
-                      any(p.text.strip() for p in sec0.footer.paragraphs)))
+    footer_in_use = not sec0.footer.is_linked_to_previous and (
+        bool(sec0.footer.tables) or any(p.text.strip() for p in sec0.footer.paragraphs)
+    )
     for section in doc.sections:
         if not footer_in_use and section.bottom_margin is not None:
             section.bottom_margin = min(section.bottom_margin, Pt(14))
@@ -303,9 +314,10 @@ def _compact_docx(path: str, vscale: float = 1.0) -> None:
         pf.widow_control = False
         if vscale >= 1.0:
             continue
-        if (pf.line_spacing is not None
-                and pf.line_spacing_rule in (WD_LINE_SPACING.EXACTLY,
-                                             WD_LINE_SPACING.AT_LEAST)):
+        if pf.line_spacing is not None and pf.line_spacing_rule in (
+            WD_LINE_SPACING.EXACTLY,
+            WD_LINE_SPACING.AT_LEAST,
+        ):
             pf.line_spacing = Emu(int(pf.line_spacing * vscale))
         if pf.space_before:
             pf.space_before = Emu(int(pf.space_before * vscale))
@@ -337,8 +349,10 @@ def _docx_rendered_pages(docx_path: str) -> int | None:
         rendered = soffice_convert(docx_path, tmpdir, "pdf")
         return _pdf_page_count(rendered)
     except (ConversionError, RuntimeError, OSError):  # PyMuPDF errors are RuntimeErrors
-        log.warning("Could not render the DOCX to check its page count; "
-                    "keeping it uncompacted", exc_info=True)
+        log.warning(
+            "Could not render the DOCX to check its page count; keeping it uncompacted",
+            exc_info=True,
+        )
         return None
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -418,8 +432,9 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
     redacted = base_path + ".redacted.pdf"
     bands = bool(layout.header or layout.footer)
     if bands:
-        if _best_effort("header/footer redaction", fixup.redact_bands,
-                        in_path, redacted, layout)[0]:
+        if _best_effort("header/footer redaction", fixup.redact_bands, in_path, redacted, layout)[
+            0
+        ]:
             work_path = redacted
         else:
             layout.header = layout.footer = None
@@ -427,8 +442,10 @@ def _layout_fixed_docx(in_path: str, base_path: str) -> None:
 
     try:
         doc = _convert_with_table_repair(work_path, base_path, layout)
-        if bands and not _best_effort("header/footer rebuild",
-                                      fixup.build_header_footer, doc, layout)[0]:
+        if (
+            bands
+            and not _best_effort("header/footer rebuild", fixup.build_header_footer, doc, layout)[0]
+        ):
             # the bands were redacted from the converted PDF, so their content
             # would be lost: convert the intact PDF instead
             doc = _convert_with_table_repair(in_path, base_path, layout)
@@ -454,9 +471,7 @@ def pdf_to_docx(in_path: str, out_path: str) -> None:
     try:
         import pdf2docx  # noqa: F401 - only checks that it is installed
     except ImportError as e:  # pragma: no cover - depends on local env
-        raise ConversionError(
-            "pdf2docx is required for PDF->DOCX but is not installed."
-        ) from e
+        raise ConversionError("pdf2docx is required for PDF->DOCX but is not installed.") from e
 
     src_pages = _preflight_pdf(in_path)
 

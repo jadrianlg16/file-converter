@@ -1,4 +1,5 @@
 """PDF-side analysis: read the source layout with PyMuPDF."""
+
 from __future__ import annotations
 
 import logging
@@ -26,13 +27,18 @@ def _mk_span(sp: dict[str, Any]) -> Span | None:
     fname = sp.get("font", "") or ""
     x0, y0, x1, y1 = sp["bbox"]
     return Span(
-        text=text.strip(), x0=x0, x1=x1, y0=y0, y1=y1,
-        size=float(sp.get("size", 11.0)), font=fname,
+        text=text.strip(),
+        x0=x0,
+        x1=x1,
+        y0=y0,
+        y1=y1,
+        size=float(sp.get("size", 11.0)),
+        font=fname,
         bold=bool(flags & 16) or "bold" in fname.lower(),
-        italic=bool(flags & 2) or "italic" in fname.lower()
-              or "oblique" in fname.lower(),
+        italic=bool(flags & 2) or "italic" in fname.lower() or "oblique" in fname.lower(),
         color=int(sp.get("color", 0)),
-        lead_space=text[:1].isspace(), trail_space=text[-1:].isspace(),
+        lead_space=text[:1].isspace(),
+        trail_space=text[-1:].isspace(),
     )
 
 
@@ -47,13 +53,18 @@ def _coalesce_row(spans: list[Span]) -> list[Span]:
             gap = sp.x0 - prev.x1
             # PyMuPDF often keeps the word space inside a span's text (which
             # _mk_span strips), so the bbox gap alone can read as zero
-            sep = (" " if gap > prev.size * 0.12 or prev.trail_space
-                   or sp.lead_space else "")
+            sep = " " if gap > prev.size * 0.12 or prev.trail_space or sp.lead_space else ""
             out[-1] = Span(
-                text=prev.text + sep + sp.text, x0=prev.x0, x1=sp.x1,
-                y0=min(prev.y0, sp.y0), y1=max(prev.y1, sp.y1),
-                size=prev.size, font=prev.font, bold=prev.bold,
-                italic=prev.italic, color=prev.color,
+                text=prev.text + sep + sp.text,
+                x0=prev.x0,
+                x1=sp.x1,
+                y0=min(prev.y0, sp.y0),
+                y1=max(prev.y1, sp.y1),
+                size=prev.size,
+                font=prev.font,
+                bold=prev.bold,
+                italic=prev.italic,
+                color=prev.color,
                 trail_space=sp.trail_space,
                 parts=[*(prev.parts or [prev]), replace(sp, text=sep + sp.text)],
             )
@@ -88,8 +99,7 @@ def _page_rows(page: fitz.Page) -> list[Row]:
     out = []
     for group in rows:
         merged = _coalesce_row(group)
-        out.append(Row(spans=merged,
-                       squash=squash("".join(s.text for s in merged))))
+        out.append(Row(spans=merged, squash=squash("".join(s.text for s in merged))))
     return out
 
 
@@ -101,8 +111,7 @@ def _page_blocks(page: fitz.Page) -> tuple[list[BlockInfo], list[dict[str, Any]]
             continue
         lines, x1s, texts = [], [], []
         for ln in blk.get("lines", []):
-            row = [s for s in (_mk_span(sp) for sp in ln.get("spans", []))
-                   if s]
+            row = [s for s in (_mk_span(sp) for sp in ln.get("spans", [])) if s]
             if not row:
                 continue
             row = _coalesce_row(row)
@@ -113,12 +122,15 @@ def _page_blocks(page: fitz.Page) -> tuple[list[BlockInfo], list[dict[str, Any]]
             continue
         full = "\n".join(texts)
         x0, _, x1, _ = blk["bbox"]
-        infos.append(BlockInfo(squash=squash(full), line_x1=x1s,
-                               width=x1 - x0))
-        records.append({
-            "norm": norm_repeat(full), "texts": texts, "lines": lines,
-            "rect": fitz.Rect(blk["bbox"]),
-        })
+        infos.append(BlockInfo(squash=squash(full), line_x1=x1s, width=x1 - x0))
+        records.append(
+            {
+                "norm": norm_repeat(full),
+                "texts": texts,
+                "lines": lines,
+                "rect": fitz.Rect(blk["bbox"]),
+            }
+        )
     return infos, records
 
 
@@ -128,8 +140,12 @@ def _page_drawings(page: fitz.Page, pno: int) -> tuple[list, list, list]:
     try:
         drawings = page.get_drawings()
     except Exception:  # MuPDF raises several types on bad content streams
-        log.warning("Could not read the drawings on page %d; rules, borders "
-                    "and banner fills there are ignored", pno + 1, exc_info=True)
+        log.warning(
+            "Could not read the drawings on page %d; rules, borders "
+            "and banner fills there are ignored",
+            pno + 1,
+            exc_info=True,
+        )
         return hlines, vlines, fills
     for d in drawings:
         r = d.get("rect")
@@ -139,8 +155,7 @@ def _page_drawings(page: fitz.Page, pno: int) -> tuple[list, list, list]:
             hlines.append(r)
         elif r.width <= 3 and r.height >= 16:
             vlines.append((r.x0, r.y0, r.y1))
-        elif (d.get("fill") is not None and 6 <= r.height <= 80
-              and r.width >= 30):
+        elif d.get("fill") is not None and 6 <= r.height <= 80 and r.width >= 30:
             fills.append((r, d["fill"]))
     return hlines, vlines, fills
 
@@ -150,11 +165,11 @@ def analyze_pdf(path: str) -> Layout:
     filled bars and (for uniform page sizes) the repeated header/footer."""
     with fitz.open(path) as doc:
         first = doc[0].rect
-        layout = Layout(page_w=first.width, page_h=first.height,
-                        page_count=doc.page_count)
-        uniform = all(abs(doc[p].rect.width - first.width) < 2 and
-                      abs(doc[p].rect.height - first.height) < 2
-                      for p in range(doc.page_count))
+        layout = Layout(page_w=first.width, page_h=first.height, page_count=doc.page_count)
+        uniform = all(
+            abs(doc[p].rect.width - first.width) < 2 and abs(doc[p].rect.height - first.height) < 2
+            for p in range(doc.page_count)
+        )
         page_records = []
         hlines_per_page = []
         for pno in range(doc.page_count):
@@ -163,12 +178,14 @@ def analyze_pdf(path: str) -> Layout:
             infos, records = _page_blocks(page)
             layout.blocks.append(infos)
             page_records.append(records)
-            hlines, vlines, fills = (_page_drawings(page, pno)
-                                     if pno < _DRAWING_PAGES else ([], [], []))
+            hlines, vlines, fills = (
+                _page_drawings(page, pno) if pno < _DRAWING_PAGES else ([], [], [])
+            )
             hlines_per_page.append(hlines)
             layout.vlines.append(vlines)
             layout.fillrects.append(fills)
         if uniform:
             layout.header, layout.footer = detect_bands(
-                doc, page_records, hlines_per_page, first.width, first.height)
+                doc, page_records, hlines_per_page, first.width, first.height
+            )
         return layout

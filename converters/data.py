@@ -16,6 +16,7 @@ All heavy libraries are imported lazily *inside* the handlers so this module
 (and therefore the whole ``converters`` package) imports cleanly even when
 pandas / openpyxl / xlrd / PyYAML are not installed locally.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,6 +31,7 @@ _TABULAR_SRC = ["csv", "tsv", "xlsx", "xls", "json"]
 
 
 # --- helpers ----------------------------------------------------------------
+
 
 def _ext(path: str) -> str:
     return os.path.splitext(path)[1].lower().lstrip(".")
@@ -142,6 +144,7 @@ def _df_to_native(df):
 
 # --- hub handler ------------------------------------------------------------
 
+
 def convert_tabular(in_path: str, out_path: str) -> None:
     """csv/tsv/json/xlsx/xls/yaml/yml -> csv/tsv/json/xlsx/yaml/yml."""
     try:
@@ -189,6 +192,7 @@ def convert_tabular(in_path: str, out_path: str) -> None:
 
 # --- table exports to document formats (one-way niceties) -------------------
 
+
 def export_table(in_path: str, out_path: str) -> None:
     """csv/tsv/xlsx/xls/json -> html / md (render a table)."""
     try:
@@ -207,8 +211,10 @@ def export_table(in_path: str, out_path: str) -> None:
             # fragment can show non-ASCII text as mojibake when opened.
             table = df.to_html(index=False, border=1, na_rep="")
             with open(out_path, "w", encoding="utf-8") as fh:
-                fh.write('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n'
-                         "<title>Table</title>\n</head>\n<body>\n")
+                fh.write(
+                    '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n'
+                    "<title>Table</title>\n</head>\n<body>\n"
+                )
                 fh.write(table)
                 fh.write("\n</body>\n</html>\n")
         elif dst in ("md", "markdown"):

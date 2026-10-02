@@ -5,6 +5,7 @@ structure: real Word headers/footers with PAGE fields, tab-stop rows instead
 of strangled tables, split clause paragraphs, and geometry-true table widths.
 Render-dependent assertions need LibreOffice and skip without it.
 """
+
 import os
 import sys
 from itertools import pairwise
@@ -45,6 +46,7 @@ def _convert(tmp_path, maker, name, **kwargs):
 
 # --- Grid letterhead: real header/footer with fields ------------------------
 
+
 def test_grid_letterhead_header_extracted(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_grid_letterhead, "grid")
     d = docx.Document(out)
@@ -72,6 +74,7 @@ def test_grid_letterhead_page_count(tmp_path):
 
 
 # --- Form letterhead: tab-stop rows + split clauses -------------------------
+
 
 def test_form_rows_and_clauses(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_form_letterhead, "form")
@@ -108,10 +111,21 @@ def test_form_values_share_line_when_rendered(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_form_letterhead, "form")
     outdir = str(tmp_path / "render")
     subprocess.run(
-        ["soffice", "--headless", "--norestore",
-         f"-env:UserInstallation=file:///tmp/lo_{uuid.uuid4().hex}",
-         "--convert-to", "pdf", "--outdir", outdir, out],
-        capture_output=True, timeout=180, check=False)
+        [
+            "soffice",
+            "--headless",
+            "--norestore",
+            f"-env:UserInstallation=file:///tmp/lo_{uuid.uuid4().hex}",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            outdir,
+            out,
+        ],
+        capture_output=True,
+        timeout=180,
+        check=False,
+    )
     pdfs = glob.glob(outdir + "/*.pdf")
     assert pdfs, "LibreOffice must render the docx"
     with fitz.open(pdfs[0]) as rendered:
@@ -124,18 +138,19 @@ def test_form_values_share_line_when_rendered(tmp_path):
 
 # --- Single page: no band extraction ----------------------------------------
 
+
 def test_single_page_keeps_content_in_body(tmp_path):
-    _, out = _convert(tmp_path, pdf_fixtures.make_form_letterhead,
-                      "single", pages=1)
+    _, out = _convert(tmp_path, pdf_fixtures.make_form_letterhead, "single", pages=1)
     d = docx.Document(out)
     assert not d.sections[0].header.tables
     body = "\n".join(p.text for p in d.paragraphs)
     assert "NOTARIA 88" in body or any(
-        "NOTARIA 88" in c.text for t in d.tables
-        for r in t.rows for c in r.cells)
+        "NOTARIA 88" in c.text for t in d.tables for r in t.rows for c in r.cells
+    )
 
 
 # --- Borderless columns become tab-stop rows --------------------------------
+
 
 def test_tab_columns_alignment(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_tab_columns, "cols")
@@ -153,6 +168,7 @@ def test_tab_columns_alignment(tmp_path):
 
 # --- Official letter: column sections flattened, banner visible -------------
 
+
 def test_official_letter_structure(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_official_letter, "carta")
     import zipfile
@@ -165,8 +181,10 @@ def test_official_letter_structure(tmp_path):
     # the white-on-red banner text must have regained its shading
     assert "Datos personales" in xml
     import re
-    assert re.search(r'<w:shd[^>]*w:fill="[0-9A-F]{6}"', xml), \
+
+    assert re.search(r'<w:shd[^>]*w:fill="[0-9A-F]{6}"', xml), (
         "banner paragraph must carry the fill of the rectangle behind it"
+    )
     # reading order: personal data stays together, before the recipient block
     d = docx.Document(out)
     full = []
@@ -177,9 +195,14 @@ def test_official_letter_structure(tmp_path):
             for c in row.cells:
                 full.append(c.text)
     joined = "\n".join(full)
-    for needle in ["GARCIA LOPEZ JUAN ALBERTO", "NSS: 12345678901",
-                   "CURP: GALJ850101HNLRPN09", "MONTERREY, NUEVO LEON",
-                   "P R E S E N T E", "A T E N T A M E N T E"]:
+    for needle in [
+        "GARCIA LOPEZ JUAN ALBERTO",
+        "NSS: 12345678901",
+        "CURP: GALJ850101HNLRPN09",
+        "MONTERREY, NUEVO LEON",
+        "P R E S E N T E",
+        "A T E N T A M E N T E",
+    ]:
         assert needle in joined, f"missing: {needle}"
 
 
@@ -191,14 +214,14 @@ def test_official_letter_single_page(tmp_path):
 
 # --- Ruled table keeps real column widths ------------------------------------
 
+
 def test_lattice_table_real_widths(tmp_path):
     _, out = _convert(tmp_path, pdf_fixtures.make_lattice_table, "lattice")
     d = docx.Document(out)
     assert d.tables, "ruled table must survive as a real table"
     t = d.tables[0]
     assert len(t.columns) == 3 and len(t.rows) == 3
-    widths = [int(g.get(f"{NS}w"))
-              for g in t._tbl.tblGrid.findall(f"{NS}gridCol")]
+    widths = [int(g.get(f"{NS}w")) for g in t._tbl.tblGrid.findall(f"{NS}gridCol")]
     real = [(b - a) * 20 for a, b in pairwise(pdf_fixtures.LATTICE_COLS)]
     for got, want in zip(widths, real, strict=True):
         assert abs(got - want) <= 200, (widths, real)

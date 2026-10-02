@@ -1,4 +1,5 @@
 """Repeated header/footer bands: detection on the PDF and redaction from it."""
+
 from __future__ import annotations
 
 import logging
@@ -23,8 +24,9 @@ _ZONES = ("header", "footer")
 Marker = tuple[int, int, str]  # (start, end, "PAGE" | "NUMPAGES")
 
 
-def _line_markers(first: str, others: list[str], page_nums: list[int],
-                  page_count: int) -> list[Marker]:
+def _line_markers(
+    first: str, others: list[str], page_nums: list[int], page_count: int
+) -> list[Marker]:
     """Positions in ``first`` whose digit runs should become PAGE/NUMPAGES
     fields. ``others``/``page_nums`` are the same line on other pages (raw
     text, 0-based page index; first entry corresponds to ``first``)."""
@@ -49,8 +51,9 @@ def _line_markers(first: str, others: list[str], page_nums: list[int],
     return sorted(markers)
 
 
-def _span_markers(lines: list[list[Span]],
-                  line_markers: list[list[Marker]]) -> dict[tuple[int, int], list[Marker]]:
+def _span_markers(
+    lines: list[list[Span]], line_markers: list[list[Marker]]
+) -> dict[tuple[int, int], list[Marker]]:
     """Convert line-level PAGE/NUMPAGES markers into span-local offsets."""
     out: dict[tuple[int, int], list[Marker]] = {}
     for li, spans in enumerate(lines):
@@ -62,17 +65,20 @@ def _span_markers(lines: list[list[Span]],
             if si:
                 offset += 1  # single joining space, matches _page_blocks texts
             start, end = offset, offset + len(sp.text)
-            local = [(ms - start, me - start, instr)
-                     for ms, me, instr in markers
-                     if start <= ms and me <= end]
+            local = [
+                (ms - start, me - start, instr)
+                for ms, me, instr in markers
+                if start <= ms and me <= end
+            ]
             if local:
                 out[(li, si)] = local
             offset = end
     return out
 
 
-def _find_rules(hlines_per_page: list[list[fitz.Rect]], W: float, H: float,
-                threshold: int) -> dict[str, dict[str, Any] | None]:
+def _find_rules(
+    hlines_per_page: list[list[fitz.Rect]], W: float, H: float, threshold: int
+) -> dict[str, dict[str, Any] | None]:
     """Thin horizontal lines repeated near the top/bottom of most pages —
     the natural separator between a letterhead and the body."""
     rules: dict[str, dict[str, Any] | None] = {"header": None, "footer": None}
@@ -81,11 +87,9 @@ def _find_rules(hlines_per_page: list[list[fitz.Rect]], W: float, H: float,
         for r in hlines:
             if r.width < 0.4 * W:
                 continue
-            zone = ("header" if r.y1 <= 0.25 * H
-                    else "footer" if r.y0 >= 0.78 * H else None)
+            zone = "header" if r.y1 <= 0.25 * H else "footer" if r.y0 >= 0.78 * H else None
             if zone and pno not in occ[zone]:
-                occ[zone][pno] = fitz.Rect(r.x0 - 1, r.y0 - 1,
-                                           r.x1 + 1, r.y1 + 1)
+                occ[zone][pno] = fitz.Rect(r.x0 - 1, r.y0 - 1, r.x1 + 1, r.y1 + 1)
     for zone in _ZONES:
         if len(occ[zone]) >= threshold:
             ys = sorted(r.y0 for r in occ[zone].values())
@@ -95,8 +99,9 @@ def _find_rules(hlines_per_page: list[list[fitz.Rect]], W: float, H: float,
     return rules
 
 
-def _group_edge_blocks(page_records: list[list[dict[str, Any]]],
-                       zone_limit: dict[str, float]) -> dict[tuple[str, str], list[dict]]:
+def _group_edge_blocks(
+    page_records: list[list[dict[str, Any]]], zone_limit: dict[str, float]
+) -> dict[tuple[str, str], list[dict]]:
     """Blocks inside the header/footer zones, grouped by normalised text.
 
     A group holds at most one block per page, and only blocks at the same
@@ -114,8 +119,8 @@ def _group_edge_blocks(page_records: list[list[dict[str, Any]]],
             grp = groups.setdefault((zone, rec["norm"]), [])
             # same block repeats: similar y, similar left or right edge
             if grp and not any(
-                abs(g["rect"].y0 - r.y0) <= 5 and
-                (abs(g["rect"].x0 - r.x0) <= 8 or abs(g["rect"].x1 - r.x1) <= 8)
+                abs(g["rect"].y0 - r.y0) <= 5
+                and (abs(g["rect"].x0 - r.x0) <= 8 or abs(g["rect"].x1 - r.x1) <= 8)
                 for g in grp
             ):
                 continue
@@ -132,26 +137,23 @@ def _repeated_block(grp: list[dict], page_count: int) -> RepeatedBlock:
     rb = RepeatedBlock(lines=first["lines"], bbox=tuple(grp[0]["rect"]))
     for g in grp:
         rb.occurrences[g["page"]] = g["rect"]
-    rb.exact = len({" ".join("\n".join(g["rec"]["texts"]).split())
-                    for g in grp}) == 1
+    rb.exact = len({" ".join("\n".join(g["rec"]["texts"]).split()) for g in grp}) == 1
     page_nums = [g["page"] for g in grp]
     line_markers = []
     for li, line_text in enumerate(first["texts"]):
         if all(li < len(g["rec"]["texts"]) for g in grp):
             texts = [g["rec"]["texts"][li] for g in grp]
-            line_markers.append(
-                _line_markers(line_text, texts, page_nums, page_count))
+            line_markers.append(_line_markers(line_text, texts, page_nums, page_count))
         else:
             line_markers.append([])
     rb.span_markers = _span_markers(rb.lines, line_markers)
     rb.has_page_token = any(
-        instr == "PAGE" for ms in rb.span_markers.values()
-        for _, _, instr in ms)
+        instr == "PAGE" for ms in rb.span_markers.values() for _, _, instr in ms
+    )
     return rb
 
 
-def _contiguous_from_edge(blocks: list[RepeatedBlock], zone: str,
-                          H: float) -> list[RepeatedBlock]:
+def _contiguous_from_edge(blocks: list[RepeatedBlock], zone: str, H: float) -> list[RepeatedBlock]:
     """Without a rule to delimit the band, keep only the blocks that start
     near the page edge and follow each other without a wide gap."""
     if zone == "header":
@@ -169,9 +171,13 @@ def _contiguous_from_edge(blocks: list[RepeatedBlock], zone: str,
     return kept
 
 
-def detect_bands(doc: fitz.Document, page_records: list[list[dict[str, Any]]],
-                 hlines_per_page: list[list[fitz.Rect]],
-                 W: float, H: float) -> tuple[Band | None, Band | None]:
+def detect_bands(
+    doc: fitz.Document,
+    page_records: list[list[dict[str, Any]]],
+    hlines_per_page: list[list[fitz.Rect]],
+    W: float,
+    H: float,
+) -> tuple[Band | None, Band | None]:
     """Find blocks repeated across pages that form the header/footer bands.
 
     A horizontal rule (when present on most pages) delimits the band exactly.
@@ -186,10 +192,8 @@ def detect_bands(doc: fitz.Document, page_records: list[list[dict[str, Any]]],
     threshold = max(2, -(-n * 3 // 5))  # ceil(0.6 * n)
     rules = _find_rules(hlines_per_page, W, H, threshold)
     zone_limit = {
-        "header": (rules["header"]["y"] + 2 if rules["header"]
-                   else H * _HEADER_LIMIT),
-        "footer": (rules["footer"]["y"] - 2 if rules["footer"]
-                   else H * _FOOTER_LIMIT),
+        "header": (rules["header"]["y"] + 2 if rules["header"] else H * _HEADER_LIMIT),
+        "footer": (rules["footer"]["y"] - 2 if rules["footer"] else H * _FOOTER_LIMIT),
     }
 
     bands = {zone: Band() for zone in _ZONES}
@@ -215,8 +219,9 @@ def detect_bands(doc: fitz.Document, page_records: list[list[dict[str, Any]]],
     return found["header"], found["footer"]
 
 
-def _find_band_images(doc: fitz.Document, H: float, threshold: int,
-                      zone: str, limit_y: float | None = None) -> list[dict[str, Any]]:
+def _find_band_images(
+    doc: fitz.Document, H: float, threshold: int, zone: str, limit_y: float | None = None
+) -> list[dict[str, Any]]:
     """Images (logos) with the same xref+position in the band on most pages."""
     if limit_y is None:
         limit_y = H * (_HEADER_LIMIT if zone == "header" else _FOOTER_LIMIT)
@@ -227,8 +232,7 @@ def _find_band_images(doc: fitz.Document, H: float, threshold: int,
             for img in doc[pno].get_images(full=True):
                 xref = img[0]
                 for r in doc[pno].get_image_rects(xref):
-                    in_band = (r.y1 <= limit_y if zone == "header"
-                               else r.y0 >= limit_y)
+                    in_band = r.y1 <= limit_y if zone == "header" else r.y0 >= limit_y
                     if not in_band:
                         continue
                     entry = seen.setdefault(xref, {"occurrences": {}, "rect": r})
@@ -239,12 +243,16 @@ def _find_band_images(doc: fitz.Document, H: float, threshold: int,
                 continue
             pix = doc.extract_image(xref)
             if pix and pix.get("ext") in ("png", "jpeg", "jpg", "bmp", "gif"):
-                out.append({"occurrences": entry["occurrences"],
-                            "data": pix["image"], "ext": pix["ext"],
-                            "bbox": tuple(entry["rect"])})
+                out.append(
+                    {
+                        "occurrences": entry["occurrences"],
+                        "data": pix["image"],
+                        "ext": pix["ext"],
+                        "bbox": tuple(entry["rect"]),
+                    }
+                )
     except Exception:  # MuPDF raises several types on broken images
-        log.warning("Could not read the %s images; logos stay in the body",
-                    zone, exc_info=True)
+        log.warning("Could not read the %s images; logos stay in the body", zone, exc_info=True)
         return []
     return out
 
@@ -281,15 +289,13 @@ def redact_bands(src: str, dst: str, layout: Layout) -> None:
             # two passes: text/rule rects must leave every image alone (a
             # background or body image merely touching a band block would
             # otherwise be removed whole); only band logos remove images
-            for batch, images in ((rects, image_none),
-                                  (img_rects, image_flag)):
+            for batch, images in ((rects, image_none), (img_rects, image_flag)):
                 if not batch:
                     continue
                 for r in batch:
                     page.add_redact_annot(r)
                 if graphics_flag is not None:
-                    page.apply_redactions(images=images,
-                                          graphics=graphics_flag)
+                    page.apply_redactions(images=images, graphics=graphics_flag)
                 else:  # older PyMuPDF without the graphics parameter
                     page.apply_redactions(images=images)
         doc.save(dst, garbage=3, deflate=True)

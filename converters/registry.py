@@ -9,6 +9,7 @@ possible via :func:`matrix` and looks up the handler via :func:`get_converter`.
 A handler is any callable ``fn(in_path: str, out_path: str) -> None`` that reads
 ``in_path`` and writes the converted result to ``out_path`` (raising on error).
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -19,9 +20,9 @@ Converter = Callable[[str, str], None]
 
 @dataclass(frozen=True)
 class Format:
-    ext: str          # canonical lowercase extension, no dot, e.g. "docx"
-    name: str         # human label, e.g. "Word Document"
-    category: str     # one of CATEGORIES
+    ext: str  # canonical lowercase extension, no dot, e.g. "docx"
+    name: str  # human label, e.g. "Word Document"
+    category: str  # one of CATEGORIES
 
 
 CATEGORIES = ["document", "image", "data", "ebook", "audio"]
@@ -139,8 +140,7 @@ def matrix() -> dict[str, dict]:
             "name": f.name,
             "category": f.category,
             "targets": [
-                {"ext": t, "name": FORMATS[t].name, "category": FORMATS[t].category}
-                for t in tgts
+                {"ext": t, "name": FORMATS[t].name, "category": FORMATS[t].category} for t in tgts
             ],
         }
     return out

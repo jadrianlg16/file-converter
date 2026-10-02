@@ -1,4 +1,5 @@
 """Table repairs: real column widths from PDF geometry, impossible indents."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,8 +15,7 @@ _DEFAULT_CELL_MARGINS_TW = 216  # Word's left + right cell padding
 
 
 def _grid_widths(table: Table) -> list[int]:
-    return [int(gc.get(qn("w:w")) or 0)
-            for gc in table._tbl.tblGrid.findall(f"{W_NS}gridCol")]
+    return [int(gc.get(qn("w:w")) or 0) for gc in table._tbl.tblGrid.findall(f"{W_NS}gridCol")]
 
 
 def has_strangled_tables(doc: Any) -> bool:
@@ -38,8 +38,11 @@ def has_strangled_tables(doc: Any) -> bool:
                     usable = col_w - li - ri - _DEFAULT_CELL_MARGINS_TW
                     # only indents strangle: a genuinely narrow column (qty,
                     # unit) is fine, and re-converting would undo its widths
-                    if usable < min_tw and li + ri and (
-                            usable < 0 or col_w - _DEFAULT_CELL_MARGINS_TW >= min_tw):
+                    if (
+                        usable < min_tw
+                        and li + ri
+                        and (usable < 0 or col_w - _DEFAULT_CELL_MARGINS_TW >= min_tw)
+                    ):
                         return True
     return False
 
@@ -79,8 +82,7 @@ def _widen_text_beside_logo(table: Table, grid: list[Any], col_texts: list[str])
     when the table was one."""
     if len(table.rows) != 1 or len(col_texts) != 2:
         return False
-    has_img = [any(True for _ in c._tc.iter(f"{W_NS}drawing"))
-               for c in table.rows[0].cells]
+    has_img = [any(True for _ in c._tc.iter(f"{W_NS}drawing")) for c in table.rows[0].cells]
     if has_img.count(True) != 1:
         return False
     img_idx = has_img.index(True)
@@ -98,8 +100,9 @@ def _widen_text_beside_logo(table: Table, grid: list[Any], col_texts: list[str])
     return True
 
 
-def _column_edges(matched: list[Row], vlines: list[tuple[float, float, float]],
-                  ncols: int, tbl_el: Any) -> list[float] | None:
+def _column_edges(
+    matched: list[Row], vlines: list[tuple[float, float, float]], ncols: int, tbl_el: Any
+) -> list[float] | None:
     """x-positions of the table's ncols + 1 column boundaries, or None.
 
     Prefers vertical ruled lines spanning the matched rows (lattice tables),
@@ -107,8 +110,7 @@ def _column_edges(matched: list[Row], vlines: list[tuple[float, float, float]],
     A bordered table without matching vertical lines keeps its widths."""
     y_top = min(r.spans[0].y0 for r in matched)
     y_bot = max(r.spans[0].y1 for r in matched)
-    borders = sorted(x for x, ly0, ly1 in vlines
-                     if ly0 <= y_top + 8 and ly1 >= y_bot - 8)
+    borders = sorted(x for x, ly0, ly1 in vlines if ly0 <= y_top + 8 and ly1 >= y_bot - 8)
     distinct: list[float] = []
     for x in borders:
         if not distinct or x - distinct[-1] > 2:
@@ -117,8 +119,10 @@ def _column_edges(matched: list[Row], vlines: list[tuple[float, float, float]],
         return distinct
     if _table_has_borders(tbl_el):
         return None
-    bounds = [(min(r.spans[k].x0 for r in matched),
-               max(r.spans[k].x1 for r in matched)) for k in range(ncols)]
+    bounds = [
+        (min(r.spans[k].x0 for r in matched), max(r.spans[k].x1 for r in matched))
+        for k in range(ncols)
+    ]
     edges = [bounds[0][0]]
     for k in range(1, ncols):
         edges.append((bounds[k - 1][1] + bounds[k][0]) / 2)
@@ -126,8 +130,7 @@ def _column_edges(matched: list[Row], vlines: list[tuple[float, float, float]],
     return edges
 
 
-def _fix_table(table: Table, rows: list[Row],
-               vlines: list[tuple[float, float, float]]) -> None:
+def _fix_table(table: Table, rows: list[Row], vlines: list[tuple[float, float, float]]) -> None:
     ncols = len(table.columns)
     grid = table._tbl.tblGrid.findall(f"{W_NS}gridCol")
     col_texts = ["" for _ in range(ncols)]
@@ -138,14 +141,15 @@ def _fix_table(table: Table, rows: list[Row],
         _clamp_cell_indents(table)
         return
     # PDF rows whose spans fall into this table's columns
-    matched = [r for r in rows
-               if len(r.spans) == ncols and all(
-                   squash(sp.text) and squash(sp.text) in col_texts[k]
-                   for k, sp in enumerate(r.spans))]
+    matched = [
+        r
+        for r in rows
+        if len(r.spans) == ncols
+        and all(squash(sp.text) and squash(sp.text) in col_texts[k] for k, sp in enumerate(r.spans))
+    ]
     edges = _column_edges(matched, vlines, ncols, table._tbl) if matched else None
     if edges:
-        widths_tw = [max(int((edges[k + 1] - edges[k]) * TWIPS_PER_PT), 300)
-                     for k in range(ncols)]
+        widths_tw = [max(int((edges[k + 1] - edges[k]) * TWIPS_PER_PT), 300) for k in range(ncols)]
         for gc, w in zip(grid, widths_tw, strict=False):
             gc.set(qn("w:w"), str(w))
         for row in table.rows:

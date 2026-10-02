@@ -10,6 +10,7 @@ full Docker image alike:
 
 Fixtures are tiny and generated in temp dirs.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -56,18 +57,37 @@ def _nonempty(path: str) -> bool:
 
 # --- Registration / wiring (no engine needed) ------------------------------
 
+
 def test_text_hub_pairs_registered():
     # A representative spread of the text hub any<->any matrix.
     for src, dst in [
-        ("md", "html"), ("html", "md"), ("rst", "docx"), ("docx", "md"),
-        ("md", "rst"), ("odt", "html"), ("tex", "html"), ("epub", "html"),
+        ("md", "html"),
+        ("html", "md"),
+        ("rst", "docx"),
+        ("docx", "md"),
+        ("md", "rst"),
+        ("odt", "html"),
+        ("tex", "html"),
+        ("epub", "html"),
     ]:
         assert get_converter(src, dst) is not None, f"missing {src}->{dst}"
 
 
 def test_to_pdf_pairs_registered():
-    for src in ["md", "markdown", "rst", "txt", "html", "htm",
-                "docx", "odt", "rtf", "tex", "latex", "epub"]:
+    for src in [
+        "md",
+        "markdown",
+        "rst",
+        "txt",
+        "html",
+        "htm",
+        "docx",
+        "odt",
+        "rtf",
+        "tex",
+        "latex",
+        "epub",
+    ]:
         assert get_converter(src, "pdf") is not None, f"missing {src}->pdf"
 
 
@@ -85,8 +105,13 @@ def test_pdf_export_pairs_registered():
 
 def test_no_image_or_ebook_only_pairs_registered():
     # Boundaries: images own pdf->png/jpg; ebooks own epub->mobi/azw3/fb2.
-    for bad in [("pdf", "png"), ("pdf", "jpg"), ("epub", "mobi"),
-                ("epub", "azw3"), ("epub", "fb2")]:
+    for bad in [
+        ("pdf", "png"),
+        ("pdf", "jpg"),
+        ("epub", "mobi"),
+        ("epub", "azw3"),
+        ("epub", "fb2"),
+    ]:
         fn = get_converter(*bad)
         # Either unregistered, or owned by another module (not ours).
         if fn is not None:
@@ -101,6 +126,7 @@ def test_module_imports_without_heavy_libs():
 
 
 # --- Pandoc text hub round-trips -------------------------------------------
+
 
 @requires("pandoc")
 def test_md_to_html_preserves_structure(tmp_path):
@@ -180,6 +206,7 @@ def test_utf8_is_preserved(tmp_path):
 
 # --- To PDF -----------------------------------------------------------------
 
+
 @requires("pandoc")
 def test_md_to_pdf_pandoc(tmp_path):
     # Needs pandoc AND weasyprint; skip if weasyprint is missing.
@@ -226,8 +253,9 @@ def _zip_contains(path: str, needle: bytes) -> bool:
 
 
 @requires("pandoc")
-@pytest.mark.parametrize("target", ["docx", "odt", "epub", "html", "md", "rtf",
-                                    "rst", "tex", "txt"])
+@pytest.mark.parametrize(
+    "target", ["docx", "odt", "epub", "html", "md", "rtf", "rst", "tex", "txt"]
+)
 def test_every_pandoc_writer_works_sandboxed(tmp_path, target):
     # Older pandoc builds (Debian's 3.1.11) can't reach their own data files
     # under --sandbox, so docx/odt/epub output fails outright.
@@ -241,8 +269,7 @@ def test_every_pandoc_writer_works_sandboxed(tmp_path, target):
 @pytest.mark.parametrize("target", ["docx", "odt", "epub"])
 def test_html_image_cannot_embed_a_server_file(tmp_path, target):
     secret = _secret_file(tmp_path)
-    src = _write(str(tmp_path / "in.html"),
-                 f'<p>hello</p><img src="{secret.as_posix()}" alt="x">')
+    src = _write(str(tmp_path / "in.html"), f'<p>hello</p><img src="{secret.as_posix()}" alt="x">')
     out = str(tmp_path / f"out.{target}")
     documents.text_to_text(src, out)
     assert _nonempty(out)
@@ -250,11 +277,13 @@ def test_html_image_cannot_embed_a_server_file(tmp_path, target):
 
 
 @requires("pandoc")
-@pytest.mark.parametrize("name, body", [
-    ("in.tex", "\\documentclass{article}\\begin{document}Hi "
-               "\\input{%s}\\end{document}"),
-    ("in.rst", "Hi\n\n.. include:: %s\n"),
-])
+@pytest.mark.parametrize(
+    "name, body",
+    [
+        ("in.tex", "\\documentclass{article}\\begin{document}Hi \\input{%s}\\end{document}"),
+        ("in.rst", "Hi\n\n.. include:: %s\n"),
+    ],
+)
 def test_include_directives_cannot_read_server_files(tmp_path, name, body):
     src = _write(str(tmp_path / name), body % _secret_file(tmp_path).as_posix())
     out = str(tmp_path / "out.md")
@@ -270,19 +299,23 @@ def test_pdf_engine_cannot_attach_a_server_file(tmp_path):
     pytest.importorskip("weasyprint")
     fitz = pytest.importorskip("fitz")
     secret = _secret_file(tmp_path)
-    src = _write(str(tmp_path / "in.md"),
-                 f'Hello\n\n<a rel="attachment" href="{secret.as_uri()}">a</a>\n\n'
-                 f'<img src="{secret.as_posix()}">\n')
+    src = _write(
+        str(tmp_path / "in.md"),
+        f'Hello\n\n<a rel="attachment" href="{secret.as_uri()}">a</a>\n\n'
+        f'<img src="{secret.as_posix()}">\n',
+    )
     out = str(tmp_path / "out.pdf")
     documents.text_to_pdf(src, out)
     with fitz.open(out) as doc:
         assert "Hello" in doc[0].get_text()
-        streams = [doc.xref_stream(x) or b"" for x in range(1, doc.xref_length())
-                   if doc.xref_is_stream(x)]
+        streams = [
+            doc.xref_stream(x) or b"" for x in range(1, doc.xref_length()) if doc.xref_is_stream(x)
+        ]
     assert not any(SECRET in s for s in streams)
 
 
 # --- PDF -> editable (PyMuPDF / pdf2docx) ----------------------------------
+
 
 def _make_pdf(path: str, text: str = "Hello PDF world.") -> str:
     fitz = pytest.importorskip("fitz")
@@ -341,12 +374,10 @@ def _make_dense_pdf(path: str, pages: int = 2) -> str:
     for pg in range(pages):
         page = doc.new_page()  # A4: 595 x 842 pt
         y = 56.0
-        page.insert_text((72, y), f"Section {chr(65 + pg)}", fontsize=16,
-                         fontname="hebo")
+        page.insert_text((72, y), f"Section {chr(65 + pg)}", fontsize=16, fontname="hebo")
         y += 28
         while y < 806:
-            page.insert_text((72, y), "lorem ipsum dolor sit amet consectetur " * 2,
-                             fontsize=10)
+            page.insert_text((72, y), "lorem ipsum dolor sit amet consectetur " * 2, fontsize=10)
             y += 12.6
     doc.save(path)
     doc.close()
@@ -455,8 +486,7 @@ def test_strangled_table_check_failure_is_not_fatal(monkeypatch, caplog):
     assert "strangled-table check failed" in caplog.text  # logged, not silent
 
 
-def test_failing_repair_step_is_logged_and_conversion_continues(tmp_path, monkeypatch,
-                                                               caplog):
+def test_failing_repair_step_is_logged_and_conversion_continues(tmp_path, monkeypatch, caplog):
     pytest.importorskip("pdf2docx")
     from converters import pdf_docx_fixup
 

@@ -1,5 +1,6 @@
 """HTTP-level tests for web_app.py (Flask test client). No external engines:
 the requests go through the pure-Python data converters."""
+
 import io
 import os
 import sys
@@ -77,7 +78,7 @@ def test_unexpected_handler_crash_is_a_json_500(client, monkeypatch, caplog):
 
 
 def test_handler_that_writes_nothing_is_a_json_500(client, monkeypatch):
-    monkeypatch.setattr(web_app, "get_converter", lambda s, t: (lambda i, o: None))
+    monkeypatch.setattr(web_app, "get_converter", lambda s, t: lambda i, o: None)
     resp = _post(client, "x.csv", b"a\n1\n", "json")
     assert resp.status_code == 500
     assert resp.is_json and resp.get_json()["error"]
@@ -90,24 +91,30 @@ def test_oversized_upload_gets_a_json_error(client, monkeypatch):
     assert resp.is_json and "too large" in resp.get_json()["error"]
 
 
-@pytest.mark.parametrize("name,target", [
-    ("x.nope", "pdf"),   # unknown source
-    ("x.csv", "nope"),   # unknown target
-    ("x.mp3", "xlsx"),   # known formats, no converter between them
-    ("x.csv", ""),       # no target
-])
+@pytest.mark.parametrize(
+    "name,target",
+    [
+        ("x.nope", "pdf"),  # unknown source
+        ("x.csv", "nope"),  # unknown target
+        ("x.mp3", "xlsx"),  # known formats, no converter between them
+        ("x.csv", ""),  # no target
+    ],
+)
 def test_bad_requests_are_json_400s(client, name, target):
     resp = _post(client, name, b"data", target)
     assert resp.status_code == 400
     assert resp.is_json and resp.get_json()["error"]
 
 
-@pytest.mark.parametrize("upload,expected", [
-    ("Señor López – contrato.csv", "Señor López – contrato.json"),  # noqa: RUF001 - en dash on purpose
-    ("Año 2026.csv", "Año 2026.json"),   # secure_filename made this "Ano_2026"
-    ("реестр.csv", "реестр.json"),       # ...and this "converted"
-    ("plain name.csv", "plain name.json"),
-])
+@pytest.mark.parametrize(
+    "upload,expected",
+    [
+        ("Señor López – contrato.csv", "Señor López – contrato.json"),  # noqa: RUF001 - en dash on purpose
+        ("Año 2026.csv", "Año 2026.json"),  # secure_filename made this "Ano_2026"
+        ("реестр.csv", "реестр.json"),  # ...and this "converted"
+        ("plain name.csv", "plain name.json"),
+    ],
+)
 def test_download_keeps_the_original_name(client, upload, expected):
     from urllib.parse import unquote
 
@@ -125,15 +132,18 @@ def test_download_keeps_the_original_name(client, upload, expected):
         resp.close()
 
 
-@pytest.mark.parametrize("upload,stem", [
-    ("C:\\Users\\me\\Desktop\\report.csv", "report"),   # full path from old browsers
-    ("../../etc/passwd.csv", "passwd"),
-    ('bad<>:"|?*name.csv', "bad_______name"),
-    ("tab\there.csv", "tab_here"),
-    ("  .hidden .csv", "hidden"),
-    ("... .csv", "converted"),
-    ("x" * 300 + ".csv", "x" * 150),
-])
+@pytest.mark.parametrize(
+    "upload,stem",
+    [
+        ("C:\\Users\\me\\Desktop\\report.csv", "report"),  # full path from old browsers
+        ("../../etc/passwd.csv", "passwd"),
+        ('bad<>:"|?*name.csv', "bad_______name"),
+        ("tab\there.csv", "tab_here"),
+        ("  .hidden .csv", "hidden"),
+        ("... .csv", "converted"),
+        ("x" * 300 + ".csv", "x" * 150),
+    ],
+)
 def test_download_stem_is_sanitised(upload, stem):
     assert web_app._download_stem(upload) == stem
 

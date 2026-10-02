@@ -2,6 +2,7 @@
 
 Run directly (python tests/test_demo_guard.py) or via pytest.
 """
+
 from __future__ import annotations
 
 import os
@@ -49,38 +50,30 @@ class TestDisabledByDefault(GuardTestCase):
 
 class TestRateLimit(GuardTestCase):
     def test_per_ip_hourly_cap(self):
-        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="3",
-                                DEMO_DAILY_BUDGET="1000")
+        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="3", DEMO_DAILY_BUDGET="1000")
         for i in range(3):
-            self.assertTrue(
-                guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + i).allowed
-            )
+            self.assertTrue(guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + i).allowed)
         verdict = guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + 3)
         self.assertFalse(verdict.allowed)
         self.assertEqual(verdict.status, 429)
         self.assertIn("Self-host", verdict.error)
 
     def test_other_ips_unaffected(self):
-        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="1",
-                                DEMO_DAILY_BUDGET="1000")
+        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="1", DEMO_DAILY_BUDGET="1000")
         self.assertTrue(guard.check_and_count("1.1.1.1", "md", "pdf", now=T0).allowed)
         self.assertFalse(guard.check_and_count("1.1.1.1", "md", "pdf", now=T0 + 1).allowed)
         self.assertTrue(guard.check_and_count("2.2.2.2", "md", "pdf", now=T0 + 2).allowed)
 
     def test_window_rolls_over(self):
-        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="1",
-                                DEMO_DAILY_BUDGET="1000")
+        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="1", DEMO_DAILY_BUDGET="1000")
         self.assertTrue(guard.check_and_count("1.2.3.4", "md", "pdf", now=T0).allowed)
         self.assertFalse(guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + 10).allowed)
-        self.assertTrue(
-            guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + 3601).allowed
-        )
+        self.assertTrue(guard.check_and_count("1.2.3.4", "md", "pdf", now=T0 + 3601).allowed)
 
 
 class TestDailyBudget(GuardTestCase):
     def test_global_budget_across_ips(self):
-        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="100",
-                                DEMO_DAILY_BUDGET="2")
+        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="100", DEMO_DAILY_BUDGET="2")
         self.assertTrue(guard.check_and_count("1.1.1.1", "md", "pdf", now=T0).allowed)
         self.assertTrue(guard.check_and_count("2.2.2.2", "md", "pdf", now=T0 + 1).allowed)
         verdict = guard.check_and_count("3.3.3.3", "md", "pdf", now=T0 + 2)
@@ -89,8 +82,7 @@ class TestDailyBudget(GuardTestCase):
         self.assertIn("budget", verdict.error)
 
     def test_budget_resets_next_utc_day(self):
-        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="100",
-                                DEMO_DAILY_BUDGET="1")
+        guard = self.make_guard(DEMO_MODE="1", DEMO_RATE_PER_HOUR="100", DEMO_DAILY_BUDGET="1")
         self.assertTrue(guard.check_and_count("1.1.1.1", "md", "pdf", now=T0).allowed)
         self.assertFalse(guard.check_and_count("2.2.2.2", "md", "pdf", now=T0 + 1).allowed)
         next_day = T0 + 86_400

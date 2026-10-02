@@ -1,4 +1,5 @@
 """Paragraph repairs: tab-stop rows, split list items, alignment, banners."""
+
 from __future__ import annotations
 
 import copy
@@ -22,11 +23,12 @@ _ROW_GAP_PT = 12.0
 _MAX_ROW_PIECES = 6
 
 _LIST_START = re.compile(
-    r"^\s*(\d{1,3}[.)°:]\s|[IVXLC]{1,6}[.)]\s|[a-z][.)]\s|[•▪◦‣∙*-]\s)",
-    re.IGNORECASE)
+    r"^\s*(\d{1,3}[.)°:]\s|[IVXLC]{1,6}[.)]\s|[a-z][.)]\s|[•▪◦‣∙*-]\s)", re.IGNORECASE
+)
 
 
 # --- Tab-stop rows ---------------------------------------------------------
+
 
 def _tab_rows(rows: list[Row]) -> list[Row]:
     """Rows with at least one wide gap between neighbouring spans."""
@@ -34,15 +36,15 @@ def _tab_rows(rows: list[Row]) -> list[Row]:
     for row in rows:
         if len(row.spans) < 2:
             continue
-        gaps = [row.spans[i + 1].x0 - row.spans[i].x1
-                for i in range(len(row.spans) - 1)]
+        gaps = [row.spans[i + 1].x0 - row.spans[i].x1 for i in range(len(row.spans) - 1)]
         if max(gaps) >= _ROW_GAP_PT:
             out.append(row)
     return out
 
 
-def _match_row(paras: list[Paragraph], i: int, candidates: list[Row],
-               used: set[int]) -> tuple[int, Row, int] | None:
+def _match_row(
+    paras: list[Paragraph], i: int, candidates: list[Row], used: set[int]
+) -> tuple[int, Row, int] | None:
     """The first unused candidate row whose text is exactly paras[i:j]
     joined (at least two paragraphs), as (row index, row, j)."""
     acc = squash(paras[i].text)
@@ -50,8 +52,7 @@ def _match_row(paras: list[Paragraph], i: int, candidates: list[Row],
         if ridx in used or not row.squash.startswith(acc):
             continue
         j, a = i + 1, acc
-        while (len(a) < len(row.squash) and j < len(paras)
-               and j - i < _MAX_ROW_PIECES):
+        while len(a) < len(row.squash) and j < len(paras) and j - i < _MAX_ROW_PIECES:
             nxt = a + squash(paras[j].text)
             if not row.squash.startswith(nxt):
                 break
@@ -62,8 +63,9 @@ def _match_row(paras: list[Paragraph], i: int, candidates: list[Row],
     return None
 
 
-def _tab_paragraph(first: Paragraph, row: Row, doc: Any, margin_l: float,
-                   right_edge: float) -> Paragraph:
+def _tab_paragraph(
+    first: Paragraph, row: Row, doc: Any, margin_l: float, right_edge: float
+) -> Paragraph:
     """A new paragraph before ``first`` holding ``row``'s spans, each
     reached by a tab stop at its PDF x-position (right-aligned when the span
     ends at the right margin)."""
@@ -76,16 +78,13 @@ def _tab_paragraph(first: Paragraph, row: Row, doc: Any, margin_l: float,
     for k, sp in enumerate(row.spans):
         if k == 0:
             if sp.x0 - margin_l > 3:
-                pf.tab_stops.add_tab_stop(Pt(sp.x0 - margin_l),
-                                          WD_TAB_ALIGNMENT.LEFT)
+                pf.tab_stops.add_tab_stop(Pt(sp.x0 - margin_l), WD_TAB_ALIGNMENT.LEFT)
                 merged.add_run("\t")
         else:
             if abs(sp.x1 - right_edge) <= 8:
-                pf.tab_stops.add_tab_stop(Pt(right_edge - margin_l),
-                                          WD_TAB_ALIGNMENT.RIGHT)
+                pf.tab_stops.add_tab_stop(Pt(right_edge - margin_l), WD_TAB_ALIGNMENT.RIGHT)
             else:
-                pf.tab_stops.add_tab_stop(Pt(sp.x0 - margin_l),
-                                          WD_TAB_ALIGNMENT.LEFT)
+                pf.tab_stops.add_tab_stop(Pt(sp.x0 - margin_l), WD_TAB_ALIGNMENT.LEFT)
             merged.add_run("\t")
         add_span_runs(merged, sp)
     return merged
@@ -104,16 +103,18 @@ def merge_row_paragraphs(doc: Any, layout: Layout) -> None:
         if not candidates:
             continue
 
-        paras = [Paragraph(el, doc) for el in elements
-                 if el.tag == f"{W_NS}p" and
-                 el.find(f"{W_NS}pPr/{W_NS}sectPr") is None]
+        paras = [
+            Paragraph(el, doc)
+            for el in elements
+            if el.tag == f"{W_NS}p" and el.find(f"{W_NS}pPr/{W_NS}sectPr") is None
+        ]
         paras = [p for p in paras if p.text.strip()]
         used: set[int] = set()
         i = 0
         while i < len(paras):
             hit = _match_row(paras, i, candidates, used)
             # the merged paragraph is rebuilt from PDF text only
-            if not hit or any(has_opaque(p._p) for p in paras[i:hit[2]]):
+            if not hit or any(has_opaque(p._p) for p in paras[i : hit[2]]):
                 i += 1
                 continue
             ridx, row, j = hit
@@ -126,6 +127,7 @@ def merge_row_paragraphs(doc: Any, layout: Layout) -> None:
 
 
 # --- List items merged into one paragraph -----------------------------------
+
 
 def _isolate_breaks(el: Any) -> None:
     """Rewrite ``el``'s runs so every w:br sits alone in its own run."""
@@ -167,8 +169,7 @@ def _segments(el: Any) -> tuple[list[list[Any]], list[Any]]:
     where breaks[k] precedes segments[k + 1]."""
     segments, breaks, cur = [], [], []
     for r in (c for c in el if c.tag == f"{W_NS}r"):
-        if r.find(f"{W_NS}br") is not None and len(
-                [c for c in r if c.tag != f"{W_NS}rPr"]) == 1:
+        if r.find(f"{W_NS}br") is not None and len([c for c in r if c.tag != f"{W_NS}rPr"]) == 1:
             segments.append(cur)
             breaks.append(r)
             cur = []
@@ -182,8 +183,9 @@ def _seg_text(seg: list[Any]) -> str:
     return "".join(t.text or "" for r in seg for t in r.findall(f"{W_NS}t"))
 
 
-def _split_at_list_items(el: Any, ppr: Any, segments: list[list[Any]],
-                         breaks: list[Any]) -> list[Any]:
+def _split_at_list_items(
+    el: Any, ppr: Any, segments: list[list[Any]], breaks: list[Any]
+) -> list[Any]:
     """Move every segment that starts a list item into a new paragraph after
     ``el`` (same paragraph properties, minus any section break). Returns
     the paragraphs, ``el`` first."""
@@ -250,6 +252,7 @@ def split_list_breaks(doc: Any) -> None:
 
 # --- Alignment and banner fills ---------------------------------------------
 
+
 def fix_justified_ragged(doc: Any, layout: Layout) -> None:
     """pdf2docx infers JUSTIFY for merged blocks; when the source block's
     right edge was ragged, restore LEFT alignment and full usable width."""
@@ -267,13 +270,18 @@ def fix_justified_ragged(doc: Any, layout: Layout) -> None:
             probe = squash(para.text)[:32]
             if not probe:
                 continue
-            blk = next((b for b in blocks if b.squash.startswith(probe)
-                        or probe.startswith(b.squash[:32])), None)
+            blk = next(
+                (
+                    b
+                    for b in blocks
+                    if b.squash.startswith(probe) or probe.startswith(b.squash[:32])
+                ),
+                None,
+            )
             if blk is None or len(blk.line_x1) < 3:
                 continue
             interior = blk.line_x1[:-1]
-            ragged = (max(interior) - min(interior)) > max(
-                6.0, 0.03 * blk.width)
+            ragged = (max(interior) - min(interior)) > max(6.0, 0.03 * blk.width)
             if ragged:
                 pf.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 pf.right_indent = Pt(0)
@@ -284,25 +292,23 @@ def _is_light(color_val: int) -> bool:
     return (r * 299 + g * 587 + b * 114) / 1000 > 200
 
 
-def _banner_fill(para: Paragraph, rows: list[Row],
-                 fills: list[tuple[fitz.Rect, Any]]) -> str | None:
+def _banner_fill(
+    para: Paragraph, rows: list[Row], fills: list[tuple[fitz.Rect, Any]]
+) -> str | None:
     """Hex fill of the PDF rectangle behind ``para`` when all of its text is
     light-coloured, else None."""
     probe = squash(para.text)
     if not probe:
         return None
-    colors = [r.font.color.rgb for r in para.runs
-              if r.font.color and r.font.color.rgb is not None]
+    colors = [r.font.color.rgb for r in para.runs if r.font.color and r.font.color.rgb is not None]
     if not colors or not all(_is_light(int(str(c), 16)) for c in colors):
         return None
-    row = next((r for r in rows if r.squash == probe
-                or r.squash.startswith(probe)), None)
+    row = next((r for r in rows if r.squash == probe or r.squash.startswith(probe)), None)
     if row is None:
         return None
     cx = (row.spans[0].x0 + row.spans[-1].x1) / 2
     cy = (row.spans[0].y0 + row.spans[0].y1) / 2
-    rect_fill = next((fill for rect, fill in fills
-                      if rect.contains(fitz.Point(cx, cy))), None)
+    rect_fill = next((fill for rect, fill in fills if rect.contains(fitz.Point(cx, cy))), None)
     if rect_fill is None:
         return None
     r, g, b = (round(v * 255) for v in rect_fill[:3])

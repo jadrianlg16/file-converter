@@ -13,6 +13,7 @@ All conversions shell out through engine.ffmpeg(); the ffmpeg binary is required
 at run time (engine.require) but not at import time, so the package imports even
 on a box without ffmpeg.
 """
+
 from __future__ import annotations
 
 import os

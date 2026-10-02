@@ -1,4 +1,5 @@
 """Shared python-docx / WordprocessingML helpers for the DOCX-side repairs."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
@@ -20,12 +21,18 @@ EMU_PER_TWIP = 635
 TWIPS_PER_PT = 20
 
 _FONT_MAP = [
-    ("times", "Times New Roman"), ("georgia", "Georgia"),
-    ("garamond", "Garamond"), ("cambria", "Cambria"),
-    ("calibri", "Calibri"), ("verdana", "Verdana"),
-    ("tahoma", "Tahoma"), ("courier", "Courier New"),
-    ("consolas", "Consolas"), ("arial", "Arial"),
-    ("helvetica", "Arial"), ("helv", "Arial"),
+    ("times", "Times New Roman"),
+    ("georgia", "Georgia"),
+    ("garamond", "Garamond"),
+    ("cambria", "Cambria"),
+    ("calibri", "Calibri"),
+    ("verdana", "Verdana"),
+    ("tahoma", "Tahoma"),
+    ("courier", "Courier New"),
+    ("consolas", "Consolas"),
+    ("arial", "Arial"),
+    ("helvetica", "Arial"),
+    ("helv", "Arial"),
 ]
 
 # Content a text-only rebuild from PDF spans would drop.
@@ -54,9 +61,9 @@ def apply_span_format(run: Run, span: Span) -> None:
     if name:
         run.font.name = name
     if span.color:
-        run.font.color.rgb = RGBColor((span.color >> 16) & 0xFF,
-                                      (span.color >> 8) & 0xFF,
-                                      span.color & 0xFF)
+        run.font.color.rgb = RGBColor(
+            (span.color >> 16) & 0xFF, (span.color >> 8) & 0xFF, span.color & 0xFF
+        )
 
 
 def add_span_runs(paragraph: Paragraph, span: Span, tail: str = "") -> None:
@@ -90,8 +97,7 @@ def starts_new_page(sect_pr: Any) -> bool:
     """A sectPr starts a new page unless its type is continuous/nextColumn
     (pdf2docx emits those for multi-column zones within one source page)."""
     t = sect_pr.find(f"{W_NS}type")
-    return t is None or t.get(qn("w:val")) in ("nextPage", "oddPage",
-                                               "evenPage")
+    return t is None or t.get(qn("w:val")) in ("nextPage", "oddPage", "evenPage")
 
 
 def body_pages(doc: Any) -> list[list[Any]]:
@@ -100,8 +106,14 @@ def body_pages(doc: Any) -> list[list[Any]]:
     within their page). A sectPr's type says how its *own* section starts,
     so a section ends its page only when the NEXT sectPr breaks the page."""
     els = list(doc.element.body)
-    sects = [el.find(f"{W_NS}pPr/{W_NS}sectPr") if el.tag == f"{W_NS}p"
-             else el if el.tag == f"{W_NS}sectPr" else None for el in els]
+    sects = [
+        el.find(f"{W_NS}pPr/{W_NS}sectPr")
+        if el.tag == f"{W_NS}p"
+        else el
+        if el.tag == f"{W_NS}sectPr"
+        else None
+        for el in els
+    ]
     idx = [k for k, s in enumerate(sects) if s is not None]
     ends_page = {a for a, b in pairwise(idx) if starts_new_page(sects[b])}
     pages, current = [], []

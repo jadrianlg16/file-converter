@@ -14,6 +14,7 @@ Scope:
 Heavy libs (PIL, cairosvg, fitz) are imported lazily inside the handlers so the
 package still imports when an optional dependency is missing locally.
 """
+
 from __future__ import annotations
 
 import io
