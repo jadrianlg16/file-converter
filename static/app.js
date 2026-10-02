@@ -62,7 +62,7 @@
   function initTheme() {
     var saved = null;
     try { saved = localStorage.getItem("fc-theme"); } catch (e) { /* ignore */ }
-    // Default is dark (per spec) unless the user previously chose light.
+    // Default is dark unless the user previously chose light.
     applyTheme(saved === "light" ? "light" : "dark");
   }
 

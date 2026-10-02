@@ -58,7 +58,7 @@ def run(
         tool = os.path.basename(str(cmd[0]))
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()[-2000:]
         # stderr can echo upload content and absolute server paths, so it goes
-        # to the log; the user gets the tool name and exit code only.
+        # to the log with the exit code; the user only learns which tool failed.
         log.warning("%s failed (exit %s): %s", tool, proc.returncode, err or "no output")
         raise ConversionError(f"The {tool} step failed to convert this file.")
     return proc

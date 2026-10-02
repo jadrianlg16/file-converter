@@ -133,8 +133,6 @@ def convert() -> Response | tuple[Response, int]:
     error: tuple[str, int] | None = None
     try:
         fn(in_path, out_path)
-    except NotImplementedError:
-        error = (f".{src} → .{target} is not implemented yet.", 501)
     except ConversionError as e:
         error = (str(e), 422)
     except Exception:  # a handler bug must still answer in JSON
@@ -207,9 +205,9 @@ def _safe_unlink(path: str) -> None:
 
 _FALLBACK_PAGE = """<!doctype html><meta charset=utf-8>
 <title>File Converter</title>
-<body style="font-family:sans-serif;max-width:540px;margin:40px auto">
+<body>
 <h1>File Converter</h1>
-<p>API is up. The full UI has not been built yet.</p>
+<p>The page template is missing from this build; the API still works.</p>
 <form method=post action=/convert enctype=multipart/form-data>
   <input type=file name=file required>
   <input name=target placeholder="target ext, e.g. pdf" required>

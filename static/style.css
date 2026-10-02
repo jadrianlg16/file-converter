@@ -1,7 +1,7 @@
 /* File Converter — UI styles. Self-contained, no external fonts/CDNs. */
 
 :root {
-  /* Dark palette (default), per spec. */
+  /* Dark palette (the default theme). */
   --bg: #0f1115;
   --bg-elev: #14171d;
   --card: #181b22;
