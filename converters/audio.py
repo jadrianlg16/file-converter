@@ -23,6 +23,17 @@ from .registry import register_many
 
 AUDIO = ["mp3", "wav", "ogg", "flac", "m4a", "aac"]
 
+# Source extension -> the ffmpeg demuxer to force with -f, so an upload can't
+# be sniffed as a playlist (HLS/concat) that reaches other files or the network.
+_INPUT_FORMAT = {
+    "mp3": "mp3",
+    "wav": "wav",
+    "ogg": "ogg",
+    "flac": "flac",
+    "m4a": "mov,mp4,m4a,3gp,3g2,mj2",
+    "aac": "aac",
+}
+
 # Per-target ffmpeg encoder + quality flags. Keys are output extensions.
 _CODEC_ARGS = {
     "mp3": ["-c:a", "libmp3lame", "-q:a", "2"],
@@ -51,7 +62,7 @@ def convert_audio(in_path: str, out_path: str) -> None:
     extra += codec_args
     # Raw AAC in an ADTS container needs the bitstream filter for some inputs;
     # ffmpeg adds it automatically for the .aac muxer, so no extra flag needed.
-    engine.ffmpeg(in_path, out_path, extra=extra)
+    engine.ffmpeg(in_path, out_path, extra=extra, input_format=_INPUT_FORMAT.get(_ext(in_path)))
 
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise engine.ConversionError("Audio conversion produced an empty file.")
