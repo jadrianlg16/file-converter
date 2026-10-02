@@ -69,6 +69,7 @@ def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
     Docker image installs 3.11; Debian's 3.1.11 package fails there).
     """
     require("pandoc")
+    in_path, out_path = os.path.abspath(in_path), os.path.abspath(out_path)
     cmd = ["pandoc", in_path, "-o", out_path, "--standalone", "--sandbox"]
     if from_fmt:
         cmd += ["-f", from_fmt]
@@ -82,7 +83,10 @@ def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
                 "--pdf-engine-opt=--allowed-protocols=data"]
     if extra:
         cmd += extra
-    run(cmd)
+    # PDF output writes its intermediate HTML into the working directory,
+    # which in the image (/app) is read-only for the app user.
+    with tempfile.TemporaryDirectory(prefix="pandoc_") as work:
+        run(cmd, cwd=work)
 
 
 # --- LibreOffice (headless) -------------------------------------------------

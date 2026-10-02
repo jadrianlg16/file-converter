@@ -55,11 +55,18 @@ COPY static ./static
 # /health and in the UI footer so a stale container is immediately visible.
 RUN date -u +"%Y-%m-%d %H:%M UTC" > /app/BUILD_STAMP
 
-RUN mkdir -p /app/data
+# Run as an unprivileged user. It owns DATA_DIR, where uploads and outputs
+# live while a conversion runs, and gets a writable HOME, where Calibre keeps
+# its config and fontconfig its cache. LibreOffice profiles go to /tmp.
+RUN useradd --create-home --uid 10001 --user-group converter \
+    && mkdir -p /app/data \
+    && chown converter:converter /app/data
 ENV DATA_DIR=/app/data
-# Calibre's PDF output renders via Qt WebEngine (Chromium), which aborts when
-# run as root unless the sandbox is disabled; there is no GPU in the container.
-ENV QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --disable-gpu"
+# Calibre's PDF output renders via Qt WebEngine (Chromium); there is no GPU
+# in the container. Chromium refuses to start as root unless its sandbox is
+# disabled, which is no longer needed now that the app runs as "converter".
+ENV QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu"
+USER converter
 
 EXPOSE 5007
 CMD ["gunicorn", "--bind", "0.0.0.0:5007", "--workers", "2", "--timeout", "300", "web_app:flask_app"]
