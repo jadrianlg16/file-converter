@@ -254,3 +254,69 @@ def test_audio_unsupported_target_raises(tmp_path):
     wav = _make_wav(str(tmp_path / "tone.wav"))
     with pytest.raises(ConversionError):
         audio.convert_audio(wav, str(tmp_path / "out.xyz"))
+
+
+# --------------------------------------------------------------------------- #
+# Security: decompression bombs and oversized canvases (FC-2, FC-8)
+# --------------------------------------------------------------------------- #
+
+
+@requires_pillow
+def test_oversized_raster_is_rejected(tmp_path, monkeypatch):
+    """A small file can declare a huge canvas; the converter must reject it by
+    the declared size, before decoding gigabytes of pixels."""
+    from converters.engine import ConversionError
+
+    monkeypatch.setattr(images, "_MAX_IMAGE_PIXELS", 1_000_000)  # 1 Mpx for the test
+    big = _make_png(str(tmp_path / "big.png"), mode="L", size=(2000, 2000), color=255)
+    with pytest.raises(ConversionError, match="too large"):
+        images.raster_to_raster(big, str(tmp_path / "out.jpg"))
+    with pytest.raises(ConversionError, match="too large"):
+        images.raster_to_pdf(big, str(tmp_path / "out.pdf"))
+
+
+@requires_pillow
+def test_pillow_bomb_warning_is_an_error(tmp_path):
+    """Pillow's decompression-bomb *warning* threshold is promoted to an error
+    so a merely-large image can't slip through with a warning."""
+    import warnings
+
+    from PIL import Image
+
+    images._guard_pillow_bombs()
+    assert Image.MAX_IMAGE_PIXELS == images._MAX_IMAGE_PIXELS
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with pytest.raises(Image.DecompressionBombWarning):
+            warnings.warn("x", Image.DecompressionBombWarning, stacklevel=1)
+
+
+def test_oversized_svg_canvas_is_rejected(tmp_path, monkeypatch):
+    """An SVG's declared canvas is capped before cairosvg allocates it."""
+    from converters.engine import ConversionError
+
+    monkeypatch.setattr(images, "_MAX_SVG_PIXELS", 1_000_000)
+    svg = tmp_path / "huge.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="40000" height="40000">'
+        '<rect width="100%" height="100%" fill="#333"/></svg>',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConversionError, match="too large"):
+        images.svg_to_raster(str(svg), str(tmp_path / "out.png"))
+
+
+def test_svg_canvas_size_parsing():
+    """width/height units and viewBox fallback are read correctly."""
+    import tempfile
+
+    def area(svg_text):
+        p = os.path.join(tempfile.mkdtemp(), "s.svg")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(svg_text)
+        return images._svg_canvas_px(p)
+
+    assert area('<svg width="100" height="50"></svg>') == 5000
+    assert area('<svg width="1in" height="1in"></svg>') == 96 * 96
+    assert area('<svg viewBox="0 0 200 10"></svg>') == 2000
+    assert area('<svg width="100%" height="100%"></svg>') is None  # unknown -> allowed
