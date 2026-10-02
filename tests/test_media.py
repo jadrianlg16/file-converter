@@ -22,7 +22,7 @@ def _has_module(name: str) -> bool:
     try:
         importlib.import_module(name)
         return True
-    except ImportError:
+    except (ImportError, OSError):  # OSError: cairocffi can't find libcairo
         return False
 
 
@@ -31,7 +31,9 @@ has_cairosvg = _has_module("cairosvg")
 has_fitz = _has_module("fitz")
 
 requires_pillow = pytest.mark.skipif(not has_pillow, reason="Pillow not installed")
-requires_cairosvg = pytest.mark.skipif(not has_cairosvg, reason="cairosvg not installed")
+requires_cairosvg = pytest.mark.skipif(
+    not has_cairosvg, reason="cairosvg or the Cairo library not installed"
+)
 requires_fitz = pytest.mark.skipif(not has_fitz, reason="PyMuPDF (fitz) not installed")
 
 
@@ -146,22 +148,29 @@ def test_svg_to_raster(tmp_path, target):
         im.load()
 
 
-def test_svg_without_cairosvg_gives_clear_error(tmp_path, monkeypatch):
-    """If cairosvg can't be imported, the handler must raise ConversionError
-    (not ImportError) with an actionable message."""
+@pytest.mark.parametrize(
+    "failure, message",
+    [
+        (ImportError("simulated missing cairosvg"), "cairosvg"),
+        (OSError("no library called cairo-2 was found"), "libcairo"),
+    ],
+)
+def test_svg_without_cairo_gives_clear_error(tmp_path, monkeypatch, failure, message):
+    """If cairosvg or the Cairo library it loads is missing, the handler must
+    raise ConversionError (not ImportError/OSError) with an actionable message."""
     from converters.engine import ConversionError
 
     real_import = __import__
 
     def fake_import(name, *args, **kwargs):
         if name == "cairosvg":
-            raise ImportError("simulated missing cairosvg")
+            raise failure
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", fake_import)
     svg = tmp_path / "in.svg"
     svg.write_text(_SVG, encoding="utf-8")
-    with pytest.raises(ConversionError):
+    with pytest.raises(ConversionError, match=message):
         images.svg_to_raster(str(svg), str(tmp_path / "out.png"))
 
 

@@ -138,6 +138,10 @@ def svg_to_raster(in_path: str, out_path: str) -> None:
         raise ConversionError(
             "SVG conversion requires the 'cairosvg' library, which is not installed."
         ) from e
+    except OSError as e:  # cairocffi loads libcairo when cairosvg is imported
+        raise ConversionError(
+            "SVG conversion needs the Cairo graphics library (libcairo), which was not found."
+        ) from e
     from PIL import Image, UnidentifiedImageError
 
     target, pil_format = _pil_format_for(out_path, "SVG raster")
