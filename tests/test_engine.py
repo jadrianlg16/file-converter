@@ -81,7 +81,7 @@ def test_pandoc_pdf_engine_may_only_fetch_data_uris(monkeypatch):
 
 
 def test_run_message_hides_tool_stderr_and_paths(monkeypatch, caplog):
-    """FC-4: a non-zero exit must not echo the tool's stderr (which can carry
+    """A non-zero exit must not echo the tool's stderr (which can carry
     server paths and upload content) back to the user."""
     import subprocess
 
@@ -100,7 +100,7 @@ def test_run_message_hides_tool_stderr_and_paths(monkeypatch, caplog):
 
 
 def test_ffmpeg_forces_demuxer_and_restricts_protocols(monkeypatch):
-    """FC-7: the input demuxer is forced (-f) and only file/pipe protocols are
+    """The input demuxer is forced (-f) and only file/pipe protocols are
     allowed, so an audio upload can't be read as a playlist that reaches out."""
     seen = {}
     monkeypatch.setattr(engine, "require", lambda b: b)
@@ -115,7 +115,7 @@ def test_ffmpeg_forces_demuxer_and_restricts_protocols(monkeypatch):
 
 
 def test_soffice_profile_is_hardened(monkeypatch, tmp_path):
-    """FC-7: every LibreOffice run gets a profile that disables macros and
+    """Every LibreOffice run gets a profile that disables macros and
     external-link updates."""
     captured = {}
 

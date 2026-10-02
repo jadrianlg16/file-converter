@@ -161,7 +161,7 @@ def test_health_reports_build(client):
 
 
 def test_security_headers_present(client):
-    """FC-5: nosniff, a CSP that forbids framing, and a referrer policy."""
+    """Nosniff, a CSP that forbids framing, and a referrer policy."""
     r = client.get("/")
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     csp = r.headers["Content-Security-Policy"]
@@ -174,7 +174,7 @@ def test_security_headers_present(client):
 
 
 def test_error_response_hides_server_paths(client, caplog):
-    """FC-4: a failed conversion must not leak absolute paths or tool stderr."""
+    """A failed conversion must not leak absolute paths or tool stderr."""
     # A .pdf upload that isn't a PDF fails inside PyMuPDF/pdf2docx.
     resp = _post(client, "notapdf.pdf", b"this is not a pdf", "docx")
     assert resp.status_code == 422

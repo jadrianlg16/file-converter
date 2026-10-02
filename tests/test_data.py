@@ -240,7 +240,7 @@ def test_utf8_bom_csv_header_is_clean(tmp_path):
     assert json.loads(Path(out).read_text(encoding="utf-8")) == [{"id": 1, "name": "Ana"}]
 
 
-# --- Security: YAML alias bomb (FC-1) --------------------------------------
+# --- Security: YAML alias bomb --------------------------------------------
 
 
 def test_yaml_aliases_are_refused(tmp_path):

@@ -112,7 +112,7 @@ class TestPersistence(GuardTestCase):
 
 class TestClientIp(unittest.TestCase):
     def test_default_trusts_no_header(self):
-        # FC-3: a directly exposed app (the default, proxy_hops=0) must ignore
+        # A directly exposed app (the default, proxy_hops=0) must ignore
         # X-Forwarded-For, or a client forges it to dodge the per-IP limit.
         self.assertEqual(
             client_ip({"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}, "172.17.0.1"),
@@ -154,7 +154,7 @@ class TestClientIp(unittest.TestCase):
 
 class TestForgedHeaderDefault(GuardTestCase):
     def test_default_guard_ignores_forged_header(self):
-        # FC-3 end to end: with DEMO_PROXY_HOPS unset, a visitor rotating a
+        # End to end: with DEMO_PROXY_HOPS unset, a visitor rotating a
         # fake X-Forwarded-For from one socket is still held to the per-IP cap.
         self.set_env(DEMO_MODE="1", DEMO_RATE_PER_HOUR="3")
         guard = DemoGuard(os.path.join(self._tmp.name, "g.sqlite"))

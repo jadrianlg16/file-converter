@@ -257,7 +257,7 @@ def test_audio_unsupported_target_raises(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Security: decompression bombs and oversized canvases (FC-2, FC-8)
+# Security: decompression bombs and oversized canvases
 # --------------------------------------------------------------------------- #
 
 
