@@ -43,7 +43,7 @@ jobs:
 
   docker:
     name: Docker image and full suite
-    # Building the image installs every engine (about 2.6 GB), so this job
+    # Building the image installs every engine (about 2.5 GB), so this job
     # runs on pushes to main and on demand, not on every pull request.
     if: github.event_name != 'pull_request'
     needs: lint-and-test
