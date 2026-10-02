@@ -122,7 +122,7 @@ pip install -r requirements.web.txt
 flask --app web_app run --port 5007
 ```
 
-Uploads go to `./data` next to `web_app.py` unless `DATA_DIR` says otherwise. `flask run` listens on `127.0.0.1`. `python web_app.py` also works, but it binds to `0.0.0.0` (every interface).
+Uploads go to `./data` next to `web_app.py` unless `DATA_DIR` says otherwise. Both `flask run` and `python web_app.py` listen on `127.0.0.1`; set `HOST=0.0.0.0` to serve beyond the local machine on purpose.
 
 ## API
 
@@ -148,13 +148,14 @@ Every variable is optional.
 | `DATA_DIR` | `./data` next to `web_app.py` (the image sets `/app/data`) | Working folder for in-flight uploads and outputs, and the demo counter database. |
 | `MAX_UPLOAD_MB` | `200` | Upload cap in MB. Ignored when `DEMO_MODE=1`. |
 | `PORT` | `5007` | Port for `python web_app.py` only; the image always runs gunicorn on 5007. |
+| `HOST` | `127.0.0.1` | Interface for `python web_app.py` only; set `0.0.0.0` to expose it deliberately. The image's gunicorn always binds `0.0.0.0` inside the container. |
 | `DEMO_MODE` | off | `1` turns on the demo limits below. |
 | `DEMO_MAX_UPLOAD_MB` | `10` | Upload cap in MB while demo mode is on. |
 | `DEMO_RATE_PER_HOUR` | `5` | Conversions per client IP per rolling hour. |
 | `DEMO_DAILY_BUDGET` | `200` | Conversions per UTC day, all clients combined. |
 | `DEMO_BLOCK` | empty | Comma-separated extensions refused as a source or a target, e.g. `wav,flac`. |
 | `DEMO_REPO_URL` | `https://github.com/` | Link shown in limit messages and the demo banner. |
-| `DEMO_PROXY_HOPS` | `1` | Reverse proxies in front of the app that append to `X-Forwarded-For`; `0` ignores the header. |
+| `DEMO_PROXY_HOPS` | `0` | Reverse proxies in front of the app that append to `X-Forwarded-For`. `0` ignores the header (the socket peer is the client); set it to your proxy count so a client can't forge the header. |
 
 Demo counters live in SQLite under `DATA_DIR`, so gunicorn workers share them and they survive restarts.
 
@@ -180,9 +181,19 @@ To upgrade a dependency, change its pin in `requirements.web.txt`, install `requ
 
 **This app is not hardened for untrusted uploads. Run it locally or on a trusted network, and don't expose it to the internet as-is.**
 
-- **What is in place.** Pandoc runs sandboxed and WeasyPrint only loads `data:` URIs, so documents can't read server files through them. The container runs as an unprivileged user. Uploads are stored under random names and deleted after each request.
-- **What isn't.** LibreOffice, Calibre, ffmpeg, Pillow, PyMuPDF and pandas parse uploads inside the container with no further isolation, and there is no per-conversion memory or CPU limit beyond the timeouts.
-- **`DEMO_MODE` limits volume, not risk.** It caps rate, daily volume, upload size and file types, but it does not sandbox parsing. Its per-IP limit trusts only the last `DEMO_PROXY_HOPS` entries of `X-Forwarded-For`, so set that to the number of proxies in front of the app.
+- **Run it offline.** Nothing needs the network at runtime, so run the container with `--network none`:
+
+  ```bash
+  docker run --rm --network none -p 127.0.0.1:5007:5007 file-converter
+  ```
+
+  This is the main containment for a malicious document. LibreOffice, for
+  example, fetches an external image that a `.docx`/`.odt` references on load
+  (an SSRF vector); `--network none` cuts all egress, and the full test suite
+  passes with it.
+- **What else is in place.** Pandoc runs sandboxed and WeasyPrint only loads `data:` URIs, so documents can't read server files through them. ffmpeg is pinned to the input's demuxer and allowed only the `file`/`pipe` protocols, so an audio upload can't act as a playlist that reads other files. LibreOffice runs with macros disabled and link-updating off. Image and SVG inputs are capped (about 40 megapixels) so a small file can't allocate gigabytes, and data conversions have a 64 MB output cap that stops YAML/JSON expansion bombs. The container runs as an unprivileged user; uploads are stored under random names and deleted after each request; error messages don't echo server paths or tool output. Responses carry `nosniff`, a `Content-Security-Policy` and `Referrer-Policy`.
+- **What isn't.** LibreOffice, Calibre, ffmpeg, Pillow, PyMuPDF and pandas parse uploads inside the container with no per-conversion memory or CPU limit beyond the timeouts, and LibreOffice will still try to reach a referenced URL unless you run with `--network none`.
+- **`DEMO_MODE` limits volume, not risk.** It caps rate, daily volume, upload size and file types, but it does not sandbox parsing. By default it trusts no `X-Forwarded-For` header (the socket peer is the client); set `DEMO_PROXY_HOPS` to the number of proxies in front of the app so the real client IP is used.
 - **Chromium in Calibre.** Calibre renders ebook → PDF with Chromium. The image no longer turns Chromium's sandbox off, which was only needed while the container ran as root; this was tested with Docker Desktop. If ebook → PDF fails on your host with a Chromium sandbox error, run the container with `-e QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --disable-gpu"`.
 - **Scope.**
   - PDF → editable formats is best-effort with no OCR, and PDF → image renders the first page only.
