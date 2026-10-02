@@ -48,7 +48,7 @@ jobs:
       - name: Full suite inside the image (every engine present, no skips)
         run: |
           docker run --rm -v "$PWD/tests:/app/tests:ro" file-converter sh -c \
-            "pip install -q --user pytest==9.1.1 && python -m pytest -q -rs -p no:cacheprovider tests" \
+            "pip install -q --user --no-warn-script-location pytest==9.1.1 && python -m pytest -q -rs -p no:cacheprovider tests" \
             | tee pytest.log
           if grep -q " skipped" pytest.log; then echo "::error::tests were skipped in the image"; exit 1; fi
       - name: Smoke-test the server
