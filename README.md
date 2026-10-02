@@ -51,7 +51,7 @@ File Converter puts Pandoc, LibreOffice, Calibre, ffmpeg and a few Python librar
 ## Engineering highlights
 
 1. **A registry is the single source of truth.** Each family module calls `register()` / `register_many()` at import time. The Flask layer never hard-codes a format: it asks `matrix()` what is possible and `get_converter()` for the handler, and the UI renders whatever `/api/formats` returns. Adding a format means writing one handler, `fn(in_path, out_path)`, and one registration line. See [`converters/registry.py`](converters/registry.py).
-2. **External tools have one exit point, and uploads can't reach server files.** Every call to pandoc, soffice, ebook-convert and ffmpeg goes through `engine.run()`, which passes an argument list (never `shell=True`), enforces a timeout and turns a non-zero exit into a `ConversionError` that carries the tool's stderr. Pandoc always runs with `--sandbox` and WeasyPrint may only fetch `data:` URIs, so an `<img src="/etc/passwd">`, a LaTeX `\input` or an RST `include` in an upload can't pull a server file into the output; tests prove each case. Each LibreOffice call gets its own profile directory, deleted afterwards. See [`converters/engine.py`](converters/engine.py) and [`tests/test_documents.py`](tests/test_documents.py).
+2. **External tools have one exit point, and uploads can't reach server files.** Every call to pandoc, soffice, ebook-convert and ffmpeg goes through `engine.run()`, which passes an argument list (never `shell=True`), enforces a timeout and turns a non-zero exit into a `ConversionError` that names the tool, while its stderr and exit code go to the server log (they can echo server paths and upload content). Pandoc always runs with `--sandbox` and WeasyPrint may only fetch `data:` URIs, so an `<img src="/etc/passwd">`, a LaTeX `\input` or an RST `include` in an upload can't pull a server file into the output; tests prove each case. Each LibreOffice call gets its own profile directory, deleted afterwards. See [`converters/engine.py`](converters/engine.py) and [`tests/test_documents.py`](tests/test_documents.py).
 3. **Upload names never become paths.** The source extension must be a known format and the pair must be registered before anything is written. On disk the job is a random UUID. The user's filename survives only as the download name, with any path part dropped and characters Windows forbids replaced; accents and non-Latin scripts are kept. The file is streamed through the response so that closing it deletes it. See [`web_app.py`](web_app.py).
 4. **The PDF → DOCX repair is geometry-driven.** PyMuPDF reads the source layout, and python-docx repairs what pdf2docx produced, in focused modules for analysis, header/footer bands, columns, tables and paragraphs. Each repair is best-effort: a failure falls back to the unrepaired output and is logged with its traceback. A verify-and-retry loop then re-renders the DOCX with LibreOffice at up to three spacing levels, the first one untouched, and stops as soon as the page counts match. Each layout that once broke is a generated PDF fixture with its own test. See [`converters/pdf_docx_fixup/`](converters/pdf_docx_fixup/), [`converters/documents.py`](converters/documents.py), [`tests/pdf_fixtures.py`](tests/pdf_fixtures.py) and [`tests/test_pdf_layout.py`](tests/test_pdf_layout.py).
 5. **Tests skip rather than fail, and CI runs them all.** Heavy libraries are imported inside the handlers, so the package still imports when one is missing, and tests that need a missing binary skip with the reason. CI runs the suite without engines on every pull request and, on `main`, inside the Docker image, where nothing may skip. See [`tests/conftest.py`](tests/conftest.py) and [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
@@ -88,9 +88,11 @@ converters/
 templates/, static/      the page, its script and its styles
 tests/                   pytest suite and generated PDF fixtures
 docs/                    screenshots
-app.py                   older desktop Markdown → DOCX tool (see Limitations)
+legacy/                  older desktop Markdown → DOCX tool, kept separate
 SPEC.md                  design notes: handler contract, module boundaries, API
 Dockerfile               image with every engine
+compose.isolated.yml     the converter on an internal network behind an nginx proxy
+deploy/nginx.conf        that proxy's configuration
 requirements.web.txt     pinned runtime dependencies (+ constraints.txt)
 requirements.dev.txt     adds pytest and ruff
 pyproject.toml           ruff and pytest settings
@@ -109,7 +111,17 @@ cd file-converter
 docker build -t file-converter . && docker run --rm -p 127.0.0.1:5007:5007 file-converter
 ```
 
-Open <http://localhost:5007>. The port is published on `127.0.0.1` only; see [Security](#security-and-limitations) before you expose it any wider. LibreOffice, Calibre and ffmpeg come from unpinned Debian packages.
+Open <http://localhost:5007>. The port is published on `127.0.0.1` only. This is fine for files you trust; see [Security](#security-and-limitations) before you expose it any wider. LibreOffice, Calibre and ffmpeg come from unpinned Debian packages.
+
+### Docker, isolated from the internet
+
+For files you don't trust, run the isolated setup instead. The converter joins only an internal Docker network with no route out, and a small nginx proxy ([`deploy/nginx.conf`](deploy/nginx.conf)) is the one container that also reaches the host:
+
+```bash
+docker compose -f compose.isolated.yml up --build
+```
+
+It serves the same app on <http://127.0.0.1:5007>; set `FC_PORT` to use another host port.
 
 ### Local Python
 
@@ -130,7 +142,7 @@ Uploads go to `./data` next to `web_app.py` unless `DATA_DIR` says otherwise. Bo
 |---|---|---|
 | `GET /` | | The page |
 | `GET /api/formats` | | `{"formats": {"<ext>": {"name", "category", "targets": [{"ext", "name", "category"}]}}, "maxUploadMb": N}`, plus `"demo"` when `DEMO_MODE=1` |
-| `POST /convert` | multipart `file` + `target` (an extension) | The converted file as an attachment with status 200, or `{"error": "..."}` with 400 (bad input or unsupported pair), 403 (blocked by `DEMO_BLOCK`), 413 (file too large), 422 (conversion failed), 429 (demo limit), 500 (unexpected error) or 501 |
+| `POST /convert` | multipart `file` + `target` (an extension) | The converted file as an attachment with status 200, or `{"error": "..."}` with 400 (bad input or unsupported pair), 403 (blocked by `DEMO_BLOCK`), 413 (file too large), 422 (conversion failed), 429 (demo limit) or 500 (unexpected error) |
 | `GET /health` | | `{"status": "ok", "formats": <number of source formats>, "build": "<stamp>"}` |
 
 Any 2xx from `/convert` is the file, including `.json` outputs, which are served as `application/json`.
@@ -173,7 +185,7 @@ The suite covers the registry wiring, the HTTP layer (status codes, JSON errors,
 docker run --rm -v "$PWD/tests:/app/tests:ro" file-converter sh -c "pip install -q --user --no-warn-script-location pytest==9.1.1 && python -m pytest -q -rs -p no:cacheprovider tests"
 ```
 
-[`ci.yml`](.github/workflows/ci.yml) runs the install, `ruff` and `pytest` commands above on every pull request and push to `main`. On pushes to `main`, and when started by hand, it also builds the image, runs the full suite inside it and fails if any test skipped.
+[`ci.yml`](.github/workflows/ci.yml) runs the install, `ruff` and `pytest` commands above on every pull request and push to `main`. On pushes to `main`, and when started by hand, it also builds the image, runs the full suite inside it and fails if any test failed or skipped. The workflow is written but has not yet run on GitHub.
 
 To upgrade a dependency, change its pin in `requirements.web.txt`, install `requirements.dev.txt` into a fresh venv, run the suite, and regenerate `constraints.txt` from that venv's `pip freeze`, leaving out the packages pinned in the requirements files.
 
@@ -181,24 +193,15 @@ To upgrade a dependency, change its pin in `requirements.web.txt`, install `requ
 
 **This app is not hardened for untrusted uploads. Run it locally or on a trusted network, and don't expose it to the internet as-is.**
 
-- **Run it offline.** Nothing needs the network at runtime, so run the container with `--network none`:
-
-  ```bash
-  docker run --rm --network none -p 127.0.0.1:5007:5007 file-converter
-  ```
-
-  This is the main containment for a malicious document. LibreOffice, for
-  example, fetches an external image that a `.docx`/`.odt` references on load
-  (an SSRF vector); `--network none` cuts all egress, and the full test suite
-  passes with it.
-- **What else is in place.** Pandoc runs sandboxed and WeasyPrint only loads `data:` URIs, so documents can't read server files through them. ffmpeg is pinned to the input's demuxer and allowed only the `file`/`pipe` protocols, so an audio upload can't act as a playlist that reads other files. LibreOffice runs with macros disabled and link-updating off. Image and SVG inputs are capped (about 40 megapixels) so a small file can't allocate gigabytes, and data conversions have a 64 MB output cap that stops YAML/JSON expansion bombs. The container runs as an unprivileged user; uploads are stored under random names and deleted after each request; error messages don't echo server paths or tool output. Responses carry `nosniff`, a `Content-Security-Policy` and `Referrer-Policy`.
-- **What isn't.** LibreOffice, Calibre, ffmpeg, Pillow, PyMuPDF and pandas parse uploads inside the container with no per-conversion memory or CPU limit beyond the timeouts, and LibreOffice will still try to reach a referenced URL unless you run with `--network none`.
+- **Isolate it from the internet.** Nothing needs the network at runtime. [`compose.isolated.yml`](compose.isolated.yml) puts the converter on an internal network (outside names don't resolve and nothing is reachable) behind an nginx proxy, and drops all its Linux capabilities. This is the main containment for a malicious document: in testing, LibreOffice fetched an image that an uploaded OpenDocument file linked to, a server-side request forgery the internal network blocks.
+- **What else is in place.** Pandoc runs sandboxed and WeasyPrint only loads `data:` URIs, so documents can't read server files through them. ffmpeg is pinned to the input's demuxer and allowed only the `file`/`pipe` protocols, so an audio upload can't act as a playlist that reads other files. LibreOffice's profile disables macros and Calc link updates. Image and SVG inputs are capped (about 40 megapixels) so a small file can't allocate gigabytes, and data conversions have a 64 MB output cap that stops YAML/JSON expansion bombs. The container runs as an unprivileged user; uploads are stored under random names and deleted after each request; error messages don't echo server paths or tool output. Responses carry `nosniff`, a `Content-Security-Policy` and `Referrer-Policy`.
+- **What isn't.** LibreOffice, Calibre, ffmpeg, Pillow, PyMuPDF and pandas parse uploads inside the container with no per-conversion memory or CPU limit beyond the timeouts, and outside the isolated setup LibreOffice will still try to reach a URL that a document links to.
 - **`DEMO_MODE` limits volume, not risk.** It caps rate, daily volume, upload size and file types, but it does not sandbox parsing. By default it trusts no `X-Forwarded-For` header (the socket peer is the client); set `DEMO_PROXY_HOPS` to the number of proxies in front of the app so the real client IP is used.
 - **Chromium in Calibre.** Calibre renders ebook → PDF with Chromium. The image no longer turns Chromium's sandbox off, which was only needed while the container ran as root; this was tested with Docker Desktop. If ebook → PDF fails on your host with a Chromium sandbox error, run the container with `-e QTWEBENGINE_CHROMIUM_FLAGS="--no-sandbox --disable-gpu"`.
 - **Scope.**
   - PDF → editable formats is best-effort with no OCR, and PDF → image renders the first page only.
   - There are no accounts and no job queue.
-  - `app.py` is an older desktop Markdown → DOCX tool with its own `requirements.txt`, independent of the web app and not covered by the tests.
+  - [`legacy/`](legacy/) holds an older desktop Markdown → DOCX tool with its own `requirements.txt`, independent of the web app and not covered by the tests.
 
 ## License
 

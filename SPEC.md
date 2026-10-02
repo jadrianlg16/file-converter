@@ -20,7 +20,7 @@ converters/
 templates/index.html    the page
 static/app.js, style.css
 tests/                  pytest; engine tests skip if the binary is missing
-app.py                  legacy tkinter md->docx tool, independent of the rest
+legacy/app.py           older tkinter md->docx tool, independent of the rest
 ```
 
 ## Handlers
@@ -81,7 +81,7 @@ Consumed by `static/app.js`:
 
 - `GET /api/formats` → `{"formats": {"<ext>": {"name", "category", "targets": [{"ext", "name", "category"}]}}, "maxUploadMb": N}`, plus `"demo"` when DEMO_MODE is on.
 - `POST /convert`, multipart `file` + `target` → the file with status 200, or
-  JSON `{"error": "..."}` with 400/403/413/422/429/500/501. The UI decides
+  JSON `{"error": "..."}` with 400/403/413/422/429/500. The UI decides
   success by status alone, because `.json` outputs are `application/json` too.
 - `GET /health` → `{"status": "ok", "formats": N, "build": "<stamp>"}`
 
