@@ -158,3 +158,26 @@ def test_ui_is_served_regardless_of_working_directory(client, tmp_path, monkeypa
 def test_health_reports_build(client):
     body = client.get("/health").get_json()
     assert body["status"] == "ok" and body["formats"] > 0 and body["build"]
+
+
+def test_security_headers_present(client):
+    """FC-5: nosniff, a CSP that forbids framing, and a referrer policy."""
+    r = client.get("/")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    csp = r.headers["Content-Security-Policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "default-src 'self'" in csp
+    assert "object-src 'none'" in csp
+    assert r.headers["Referrer-Policy"]
+    # also set on API responses
+    assert client.get("/api/formats").headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_error_response_hides_server_paths(client, caplog):
+    """FC-4: a failed conversion must not leak absolute paths or tool stderr."""
+    # A .pdf upload that isn't a PDF fails inside PyMuPDF/pdf2docx.
+    resp = _post(client, "notapdf.pdf", b"this is not a pdf", "docx")
+    assert resp.status_code == 422
+    error = resp.get_json()["error"]
+    assert ":\\" not in error and "/tmp" not in error and "Temp" not in error
+    assert error  # still a helpful, human-readable message

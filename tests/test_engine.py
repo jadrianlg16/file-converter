@@ -78,3 +78,68 @@ def test_pandoc_pdf_engine_may_only_fetch_data_uris(monkeypatch):
     cmd = _captured_pandoc_cmd(monkeypatch, "out.pdf")
     assert "--pdf-engine=weasyprint" in cmd
     assert "--pdf-engine-opt=--allowed-protocols=data" in cmd
+
+
+def test_run_message_hides_tool_stderr_and_paths(monkeypatch, caplog):
+    """FC-4: a non-zero exit must not echo the tool's stderr (which can carry
+    server paths and upload content) back to the user."""
+    import subprocess
+
+    secret = "/srv/private/C:\\Users\\x\\secret.pdf opening file failed"
+
+    def fake_run(*a, **k):
+        return subprocess.CompletedProcess(a[0], 1, b"", secret.encode())
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(engine.ConversionError) as ei:
+        engine.run(["pandoc", "x"])
+    msg = str(ei.value)
+    assert secret not in msg and "/srv/private" not in msg and "secret.pdf" not in msg
+    assert "pandoc" in msg  # naming the tool is fine
+    assert secret in caplog.text  # the detail is logged
+
+
+def test_ffmpeg_forces_demuxer_and_restricts_protocols(monkeypatch):
+    """FC-7: the input demuxer is forced (-f) and only file/pipe protocols are
+    allowed, so an audio upload can't be read as a playlist that reaches out."""
+    seen = {}
+    monkeypatch.setattr(engine, "require", lambda b: b)
+    monkeypatch.setattr(engine, "run", lambda cmd, **kw: seen.setdefault("cmd", cmd))
+    engine.ffmpeg("in.wav", "out.mp3", extra=["-vn"], input_format="wav")
+    cmd = seen["cmd"]
+    assert cmd[:3] == ["ffmpeg", "-y", "-protocol_whitelist"]
+    assert cmd[3] == "file,pipe"
+    # -f must come before -i
+    assert cmd.index("-f") < cmd.index("-i")
+    assert cmd[cmd.index("-f") + 1] == "wav"
+
+
+def test_soffice_profile_is_hardened(monkeypatch, tmp_path):
+    """FC-7: every LibreOffice run gets a profile that disables macros and
+    external-link updates."""
+    captured = {}
+
+    def fake_run(cmd, timeout=300, cwd=None, env=None):
+        arg = next(a for a in cmd if a.startswith("-env:UserInstallation="))
+        from urllib.parse import unquote, urlparse
+
+        path = unquote(urlparse(arg.split("=", 1)[1]).path)
+        if os.name == "nt":
+            path = path.lstrip("/")
+        with open(
+            os.path.join(path, "user", "registrymodifications.xcu"), encoding="utf-8"
+        ) as xcu_fh:
+            captured["xcu"] = xcu_fh.read()
+        out_dir = cmd[cmd.index("--outdir") + 1]
+        base = os.path.splitext(os.path.basename(cmd[-1]))[0]
+        with open(os.path.join(out_dir, f"{base}.pdf"), "wb") as fh:
+            fh.write(b"%PDF-1.4\n")
+
+    monkeypatch.setattr(engine, "require", lambda b: b)
+    monkeypatch.setattr(engine, "run", fake_run)
+    src = tmp_path / "in.docx"
+    src.write_bytes(b"x")
+    engine.soffice_convert(str(src), str(tmp_path), "pdf")
+    assert "MacroSecurityLevel" in captured["xcu"]
+    assert "<value>3</value>" in captured["xcu"]
+    assert "Update/Link" in captured["xcu"]

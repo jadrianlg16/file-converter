@@ -174,7 +174,8 @@ def _open_pdf(in_path: str) -> fitz.Document:
     try:
         doc = fitz.open(in_path)
     except Exception as e:
-        raise ConversionError(f"Could not read PDF: {e}") from e
+        log.warning("Could not open the uploaded PDF", exc_info=True)
+        raise ConversionError("Could not read the PDF file — it may be corrupt.") from e
     if doc.needs_pass:
         doc.close()
         raise ConversionError("This PDF is password-protected. Remove the password and try again.")
@@ -187,7 +188,8 @@ def _pdf_blocks_text(in_path: str) -> str:
         try:
             parts = [page.get_text("text") for page in doc]
         except Exception as e:
-            raise ConversionError(f"Could not read PDF: {e}") from e
+            log.warning("Could not read text from the uploaded PDF", exc_info=True)
+            raise ConversionError("Could not read the PDF file — it may be corrupt.") from e
     # Separate pages with a blank line so paragraph structure is preserved.
     return "\n\n".join(p.strip("\n") for p in parts)
 
@@ -228,7 +230,8 @@ def pdf_to_html(in_path: str, out_path: str) -> None:
                 for i, page in enumerate(doc)
             ]
         except Exception as e:
-            raise ConversionError(f"Could not read PDF: {e}") from e
+            log.warning("Could not read the uploaded PDF as HTML", exc_info=True)
+            raise ConversionError("Could not read the PDF file — it may be corrupt.") from e
         # The web layer stores uploads under random names, so the file name
         # is no title; prefer the PDF's own metadata.
         title = (doc.metadata or {}).get("title") or "PDF document"
@@ -399,7 +402,8 @@ def _run_pdf2docx(in_path: str, out_path: str, **settings: Any) -> None:
         finally:
             cv.close()
     except Exception as e:  # pdf2docx raises many types; report them all
-        raise ConversionError(f"PDF->DOCX conversion failed: {e}") from e
+        log.warning("pdf2docx failed on the uploaded PDF", exc_info=True)
+        raise ConversionError("Could not convert this PDF to DOCX.") from e
     if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
         raise ConversionError("PDF->DOCX produced no output.")
 

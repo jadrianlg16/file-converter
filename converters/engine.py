@@ -7,15 +7,22 @@ with a useful message on failure (which the Flask layer turns into a 4xx/5xx).
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 
 class ConversionError(Exception):
-    """Raised when a conversion cannot be completed."""
+    """Raised when a conversion cannot be completed.
+
+    The message is shown to the user verbatim, so it must not contain server
+    paths or raw tool output; log those instead.
+    """
 
 
 def have(binary: str) -> bool:
@@ -48,10 +55,12 @@ def run(
     except subprocess.TimeoutExpired as e:
         raise ConversionError(f"Conversion timed out after {timeout}s") from e
     if proc.returncode != 0:
+        tool = os.path.basename(str(cmd[0]))
         err = (proc.stderr or b"").decode("utf-8", "replace").strip()[-2000:]
-        raise ConversionError(
-            f"{os.path.basename(str(cmd[0]))} failed (exit {proc.returncode}): {err or 'no output'}"
-        )
+        # stderr can echo upload content and absolute server paths, so it goes
+        # to the log; the user gets the tool name and exit code only.
+        log.warning("%s failed (exit %s): %s", tool, proc.returncode, err or "no output")
+        raise ConversionError(f"The {tool} step failed to convert this file.")
     return proc
 
 
@@ -99,6 +108,29 @@ def pandoc(
 
 # --- LibreOffice (headless) -------------------------------------------------
 
+# Profile settings applied before every LibreOffice run: disable all document
+# macros (level 3 = very high) and never update external/DDE links, so an
+# uploaded Office file can't run code or fetch local/remote resources on load.
+_LO_REGISTRYMODIFICATIONS = """<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
+  <prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop>
+ </item>
+ <item oor:path="/org.openoffice.Office.Calc/Content/Update/Link">
+  <prop oor:name="Mode" oor:op="fuse"><value>0</value></prop>
+ </item>
+</oor:items>
+"""
+
+
+def _seed_lo_profile(profile: str) -> None:
+    """Write the hardening settings into a fresh LibreOffice profile."""
+    user_dir = os.path.join(profile, "user")
+    os.makedirs(user_dir, exist_ok=True)
+    with open(os.path.join(user_dir, "registrymodifications.xcu"), "w", encoding="utf-8") as fh:
+        fh.write(_LO_REGISTRYMODIFICATIONS)
+
 
 def soffice_convert(
     in_path: str, out_dir: str, target_ext: str, convert_filter: str | None = None
@@ -108,11 +140,13 @@ def soffice_convert(
     Each call uses a private, throwaway profile dir so concurrent gunicorn
     workers don't clash on a shared UserInstallation lock. The profile is
     deleted afterwards: LibreOffice leaves ~0.5 MB in it per run, which
-    used to pile up in /tmp for the life of the container.
+    used to pile up in /tmp for the life of the container. The profile is
+    pre-seeded to disable macros and external-link updates.
     """
     require("soffice")
     os.makedirs(out_dir, exist_ok=True)
     profile = tempfile.mkdtemp(prefix="lo_profile_")
+    _seed_lo_profile(profile)
     to_arg = f"{target_ext}:{convert_filter}" if convert_filter else target_ext
     try:
         run(
@@ -144,10 +178,25 @@ def soffice_convert(
 # --- ffmpeg -----------------------------------------------------------------
 
 
-def ffmpeg(in_path: str, out_path: str, extra: list[str] | None = None) -> None:
-    """Run ffmpeg; the output extension picks the format, ``extra`` adds options."""
+def ffmpeg(
+    in_path: str,
+    out_path: str,
+    extra: list[str] | None = None,
+    input_format: str | None = None,
+) -> None:
+    """Run ffmpeg; the output extension picks the format, ``extra`` adds options.
+
+    Uploads are untrusted, so the input is locked down: ``-protocol_whitelist
+    file,pipe`` blocks ``http:``/``concat:``/``subfile:`` and friends, and
+    ``input_format`` forces the demuxer (``-f``) instead of letting ffmpeg
+    sniff it. Without that, a file with an audio extension could be read as an
+    HLS or concat playlist that references local files or remote URLs.
+    """
     require("ffmpeg")
-    cmd = ["ffmpeg", "-y", "-i", in_path]
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file,pipe"]
+    if input_format:
+        cmd += ["-f", input_format]
+    cmd += ["-i", in_path]
     if extra:
         cmd += extra
     cmd += [out_path]
