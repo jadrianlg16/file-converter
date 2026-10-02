@@ -57,3 +57,23 @@ def test_soffice_profile_is_a_valid_uri_and_is_removed(tmp_path, monkeypatch, fa
 def test_run_raises_conversion_error_on_missing_binary():
     with pytest.raises(engine.ConversionError, match="not found"):
         engine.run(["definitely-not-a-real-binary-xyz"])
+
+
+def _captured_pandoc_cmd(monkeypatch, out_name: str) -> list:
+    seen = {}
+    monkeypatch.setattr(engine, "require", lambda binary: binary)
+    monkeypatch.setattr(engine, "run", lambda cmd, **kw: seen.setdefault("cmd", cmd))
+    engine.pandoc("in.html", out_name, from_fmt="html")
+    return seen["cmd"]
+
+
+@pytest.mark.parametrize("out_name", ["out.docx", "out.md", "out.epub", "out.pdf"])
+def test_pandoc_always_runs_sandboxed(monkeypatch, out_name):
+    cmd = _captured_pandoc_cmd(monkeypatch, out_name)
+    assert "--sandbox" in cmd
+
+
+def test_pandoc_pdf_engine_may_only_fetch_data_uris(monkeypatch):
+    cmd = _captured_pandoc_cmd(monkeypatch, "out.pdf")
+    assert "--pdf-engine=weasyprint" in cmd
+    assert "--pdf-engine-opt=--allowed-protocols=data" in cmd

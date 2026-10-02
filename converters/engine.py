@@ -56,19 +56,30 @@ def run(cmd, timeout: int = 300, cwd: str | None = None, env: dict | None = None
 # --- Pandoc -----------------------------------------------------------------
 
 def pandoc(in_path: str, out_path: str, *, from_fmt: str | None = None,
-           to_fmt: str | None = None, extra: list[str] | None = None,
-           pdf_engine: str = "weasyprint") -> None:
+           to_fmt: str | None = None, extra: list[str] | None = None) -> None:
     """Run pandoc. ``out_path`` extension usually determines the writer, but
-    ``to_fmt`` can force it. For PDF output we use a CSS engine (weasyprint) so
-    we don't need a multi-GB TeX install."""
+    ``to_fmt`` can force it. For PDF output we use a CSS engine (WeasyPrint) so
+    we don't need a multi-GB TeX install.
+
+    Uploads are untrusted, so pandoc runs with ``--sandbox``: readers and
+    writers may only touch the input file. Without it an ``<img
+    src="/etc/passwd">`` in an HTML upload is embedded in the .docx, and a
+    LaTeX ``\\input`` or RST ``include`` pulls server files into the text.
+    Needs a pandoc whose docx/odt/epub writers work in the sandbox (the
+    Docker image installs 3.11; Debian's 3.1.11 package fails there).
+    """
     require("pandoc")
-    cmd = ["pandoc", in_path, "-o", out_path, "--standalone"]
+    cmd = ["pandoc", in_path, "-o", out_path, "--standalone", "--sandbox"]
     if from_fmt:
         cmd += ["-f", from_fmt]
     if to_fmt:
         cmd += ["-t", to_fmt]
     if out_path.lower().endswith(".pdf"):
-        cmd += [f"--pdf-engine={pdf_engine}"]
+        # --sandbox doesn't reach the PDF engine, and WeasyPrint fetches any
+        # file:// URL in the HTML (<a rel="attachment"> embeds the file in
+        # the PDF). Only inline data: URIs are allowed through.
+        cmd += ["--pdf-engine=weasyprint",
+                "--pdf-engine-opt=--allowed-protocols=data"]
     if extra:
         cmd += extra
     run(cmd)

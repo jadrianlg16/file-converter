@@ -12,6 +12,7 @@ Fixtures are tiny and generated in temp dirs.
 """
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -204,6 +205,82 @@ def test_docx_to_pdf_libreoffice(tmp_path):
     documents.text_to_pdf(docx, out)
     assert _nonempty(out)
     assert open(out, "rb").read(5) == b"%PDF-"
+
+
+# --- Untrusted input: pandoc must not read server files --------------------
+
+SECRET = b"FC-SECRET-MARKER-7f3a"
+
+
+def _secret_file(tmp_path: Path) -> Path:
+    """A stand-in for a server file (/etc/passwd, another user's upload)."""
+    path = tmp_path / "server-secret.txt"
+    path.write_bytes(SECRET + b"\n")
+    return path
+
+
+def _zip_contains(path: str, needle: bytes) -> bool:
+    import zipfile
+
+    with zipfile.ZipFile(path) as z:
+        return any(needle in z.read(name) for name in z.namelist())
+
+
+@requires("pandoc")
+@pytest.mark.parametrize("target", ["docx", "odt", "epub", "html", "md", "rtf",
+                                    "rst", "tex", "txt"])
+def test_every_pandoc_writer_works_sandboxed(tmp_path, target):
+    # Older pandoc builds (Debian's 3.1.11) can't reach their own data files
+    # under --sandbox, so docx/odt/epub output fails outright.
+    src = _write(str(tmp_path / "in.md"), MD_SAMPLE)
+    out = str(tmp_path / f"out.{target}")
+    documents.text_to_text(src, out)
+    assert _nonempty(out)
+
+
+@requires("pandoc")
+@pytest.mark.parametrize("target", ["docx", "odt", "epub"])
+def test_html_image_cannot_embed_a_server_file(tmp_path, target):
+    secret = _secret_file(tmp_path)
+    src = _write(str(tmp_path / "in.html"),
+                 f'<p>hello</p><img src="{secret.as_posix()}" alt="x">')
+    out = str(tmp_path / f"out.{target}")
+    documents.text_to_text(src, out)
+    assert _nonempty(out)
+    assert not _zip_contains(out, SECRET)
+
+
+@requires("pandoc")
+@pytest.mark.parametrize("name, body", [
+    ("in.tex", "\\documentclass{article}\\begin{document}Hi "
+               "\\input{%s}\\end{document}"),
+    ("in.rst", "Hi\n\n.. include:: %s\n"),
+])
+def test_include_directives_cannot_read_server_files(tmp_path, name, body):
+    src = _write(str(tmp_path / name), body % _secret_file(tmp_path).as_posix())
+    out = str(tmp_path / "out.md")
+    try:
+        documents.text_to_text(src, out)
+    except ConversionError:
+        return  # refusing the document is as good as leaving the file out
+    assert SECRET.decode() not in open(out, encoding="utf-8").read()
+
+
+@requires("pandoc")
+def test_pdf_engine_cannot_attach_a_server_file(tmp_path):
+    pytest.importorskip("weasyprint")
+    fitz = pytest.importorskip("fitz")
+    secret = _secret_file(tmp_path)
+    src = _write(str(tmp_path / "in.md"),
+                 f'Hello\n\n<a rel="attachment" href="{secret.as_uri()}">a</a>\n\n'
+                 f'<img src="{secret.as_posix()}">\n')
+    out = str(tmp_path / "out.pdf")
+    documents.text_to_pdf(src, out)
+    with fitz.open(out) as doc:
+        assert "Hello" in doc[0].get_text()
+        streams = [doc.xref_stream(x) or b"" for x in range(1, doc.xref_length())
+                   if doc.xref_is_stream(x)]
+    assert not any(SECRET in s for s in streams)
 
 
 # --- PDF -> editable (PyMuPDF / pdf2docx) ----------------------------------

@@ -6,7 +6,6 @@ FROM python:3.12-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        pandoc \
         libreoffice-writer libreoffice-calc libreoffice-impress \
         calibre \
         ffmpeg \
@@ -19,6 +18,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu fonts-liberation fonts-noto-core \
         fonts-crosextra-carlito fonts-crosextra-caladea \
     && rm -rf /var/lib/apt/lists/*
+
+# Pandoc comes from its official release, not Debian's 3.1.11 package: that
+# build can't write docx/odt/epub under --sandbox, and --sandbox is what stops
+# an uploaded document from pulling server files into its output. Pinned by
+# version and checksum for both architectures.
+RUN set -eu; \
+    version=3.11; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        amd64) sum=37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6 ;; \
+        arm64) sum=56ed5566ec41d22ec9ee0704e6ac0b98ba102e92384efd5306173a22d314c79a ;; \
+        *) echo "no pandoc release for $arch" >&2; exit 1 ;; \
+    esac; \
+    python -c 'import sys, urllib.request; urllib.request.urlretrieve(*sys.argv[1:])' \
+        "https://github.com/jgm/pandoc/releases/download/$version/pandoc-$version-linux-$arch.tar.gz" \
+        /tmp/pandoc.tar.gz; \
+    echo "$sum  /tmp/pandoc.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/pandoc.tar.gz -C /usr/local --strip-components=1 "pandoc-$version/bin/pandoc"; \
+    rm /tmp/pandoc.tar.gz; \
+    pandoc --version | head -n 1
 
 WORKDIR /app
 
